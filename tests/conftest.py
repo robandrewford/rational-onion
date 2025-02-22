@@ -3,36 +3,41 @@ from fastapi.testclient import TestClient
 from neo4j import AsyncGraphDatabase
 import aioredis
 from rational_onion.api.main import app
-from rational_onion.services.neo4j_service import driver as neo4j_driver
-from rational_onion.services.caching_service import redis
+from rational_onion.config import get_test_settings
 
 @pytest.fixture
 def test_client():
+    """Create a test client instance"""
     return TestClient(app)
 
 @pytest.fixture
+def valid_api_key():
+    """Provide a valid API key for testing"""
+    return "test_api_key_123"
+
+@pytest.fixture
 async def neo4j_test_driver():
-    test_uri = "bolt://localhost:7687"
-    test_auth = ("neo4j", "test_password")
-    driver = AsyncGraphDatabase.driver(test_uri, auth=test_auth)
+    """Create a test Neo4j driver instance"""
+    settings = get_test_settings()
+    driver = AsyncGraphDatabase.driver(
+        settings.neo4j_uri,
+        auth=(settings.neo4j_user, settings.neo4j_password)
+    )
     yield driver
     await driver.close()
 
 @pytest.fixture
 async def redis_test_client():
-    redis = await aioredis.from_url("redis://localhost", encoding="utf-8", decode_responses=True)
+    """Create and yield Redis test client"""
+    redis = await aioredis.from_url(
+        f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}",
+        encoding="utf-8",
+        decode_responses=True
+    )
     yield redis
     await redis.close()
 
 @pytest.fixture
-def valid_api_key():
-    return "abc123"
-
-@pytest.fixture
-async def sample_argument_data():
-    return {
-        "claim": "AI regulation is necessary",
-        "grounds": "Unregulated AI development poses risks",
-        "warrant": "Risk mitigation requires oversight",
-        "rebuttal": "Some regulation might stifle innovation"
-    } 
+def sample_argument_data():
+    """Provide sample argument data for tests"""
+    return settings.DEFAULT_TEST_ARGUMENT 

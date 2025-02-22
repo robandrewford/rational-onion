@@ -1,8 +1,12 @@
 import pytest
 import sys
 import coverage
+from rational_onion.config import get_test_settings
+
+settings = get_test_settings()
 
 def run_tests():
+    """Run test suite with coverage"""
     # Start coverage measurement
     cov = coverage.Coverage()
     cov.start()
@@ -14,7 +18,11 @@ def run_tests():
         "--cov=rational_onion",
         "--cov-report=term-missing",
         "--cov-report=html",
-        "-vv"
+        "-vv",
+        # Use settings from centralized config
+        f"--neo4j-uri={settings.NEO4J_URI}",
+        f"--neo4j-user={settings.NEO4J_USER}",
+        f"--neo4j-password={settings.NEO4J_PASSWORD}",
     ]
     
     result = pytest.main(args)

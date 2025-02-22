@@ -1,13 +1,15 @@
 # rational_onion/services/neo4j_service.py
 
-import os
-from dotenv import load_dotenv
 from neo4j import AsyncGraphDatabase
+from rational_onion.config import get_settings
 
-load_dotenv()
+settings = get_settings()
 
-NEO4J_URI = os.getenv("NEO4J_URI")
-NEO4J_USER = os.getenv("NEO4J_USER")
-NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
-
-driver = AsyncGraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+driver = AsyncGraphDatabase.driver(
+    settings.NEO4J_URI,
+    auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD),
+    database=settings.NEO4J_DATABASE,
+    max_connection_pool_size=settings.NEO4J_MAX_CONNECTION_POOL_SIZE,
+    connection_timeout=settings.NEO4J_CONNECTION_TIMEOUT,
+    encrypted=settings.NEO4J_ENCRYPTION_ENABLED
+)

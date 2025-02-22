@@ -10,8 +10,26 @@ router = APIRouter()
 @router.get("/suggest-improvements", response_model=ArgumentImprovementResponse)
 async def suggest_argument_improvements():
     """
-    Identifies argument weaknesses and provides advanced NLP-enhanced improvement suggestions 
-    with external knowledge references. (Placeholder integration)
+    Generate NLP-enhanced suggestions to improve argument quality.
+    
+    Analysis includes:
+        - Lexical diversity assessment
+        - Evidence strength evaluation
+        - Logical flow analysis
+        - Citation completeness check
+        
+    Returns:
+        ArgumentImprovementResponse containing:
+            - missing_components: Required elements that need to be added
+            - quality_score: Numerical assessment of argument strength
+            - improvement_suggestions: List of specific enhancement recommendations
+            - external_references: Relevant scholarly sources
+            - message: Summary of improvement analysis
+            
+    Raises:
+        ArgumentError: If argument structure is invalid
+        DatabaseError: If retrieval fails
+        NLPServiceError: If language processing fails
     """
     try:
         # Example: fetch all claims from Neo4j

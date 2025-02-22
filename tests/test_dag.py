@@ -4,13 +4,17 @@ import pytest
 from fastapi.testclient import TestClient
 from rational_onion.api.main import app
 
-client = TestClient(app)
+# Remove global client initialization
+# client = TestClient(app)
 
-def test_dag_visualization():
+def test_dag_visualization(test_client, valid_api_key):
     """
     Tests the DAG retrieval endpoint that returns nodes and edges for visualization.
     """
-    response = client.get("/visualize-argument-dag", headers={"X-API-Key": "hey@309"})
+    response = test_client.get(
+        "/visualize-dag",
+        headers={"X-API-Key": valid_api_key}
+    )
     assert response.status_code == 200, "DAG endpoint should return 200"
     
     data = response.json()

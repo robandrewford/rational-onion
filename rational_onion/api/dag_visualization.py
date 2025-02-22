@@ -9,7 +9,24 @@ router = APIRouter()
 @router.get("/visualize-argument-dag")
 async def visualize_argument_dag():
     """
-    Returns the argument DAG structure for front-end visualization (D3.js, Cytoscape.js).
+    Generate graph visualization data for argument structure.
+    
+    Creates a DAG representation showing:
+        - Claims, grounds, warrants as nodes
+        - Logical relationships as edges
+        - Support and challenge relationships
+        - Component metadata for visualization
+    
+    Returns:
+        Dict containing:
+            - nodes: List of argument components with properties
+            - edges: List of relationships between components
+            - layout: Graph layout parameters
+            
+    Raises:
+        GraphError: If DAG structure is invalid
+        DatabaseError: If Neo4j query fails
+        VisualizationError: If graph rendering fails
     """
     async with driver.session() as session:
         result = await session.run("""

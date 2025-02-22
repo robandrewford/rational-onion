@@ -42,23 +42,27 @@ A sophisticated argument analysis and visualization tool that helps users constr
 ## Setup
 
 1. Create and activate virtual environment:
+
    ```bash
    python3.10 -m venv .venv
    source .venv/bin/activate
    ```
 
 2. Install dependencies:
+
    ```bash
    ./setup.sh
    ```
 
 3. Configure environment:
+
    ```bash
    cp .env.example .env
    # Edit .env with your configuration
    ```
 
 4. Start services:
+
    ```bash
    docker-compose up -d
    uvicorn rational_onion.api.main:app --reload
@@ -66,10 +70,10 @@ A sophisticated argument analysis and visualization tool that helps users constr
 
 ## Development
 
-- API documentation: http://localhost:8000/docs
-- Frontend development: http://localhost:3000
-- Neo4j browser: http://localhost:7474
-- Redis Commander: http://localhost:8081
+- API documentation: <http://localhost:8000/docs>
+- Frontend development: <http://localhost:3000>
+- Neo4j browser: <http://localhost:7474>
+- Redis Commander: <http://localhost:8081>
 
 ## Testing
 

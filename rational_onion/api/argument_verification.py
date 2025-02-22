@@ -8,7 +8,24 @@ router = APIRouter()
 @router.get("/verify-argument-structure")
 async def verify_argument_structure():
     """
-    Checks for structural inconsistencies in the argument DAG (cycles & orphaned nodes).
+    Verify the logical structure and consistency of stored arguments.
+    
+    Performs comprehensive validation including:
+        - Cycle detection in argument chains
+        - Orphaned node identification
+        - Relationship validity checks
+        - Toulmin model compliance
+    
+    Returns:
+        Dict containing:
+            - has_cycles: Boolean indicating circular reasoning
+            - orphaned_nodes: List of nodes without proper connections
+            - message: Detailed verification results
+            
+    Raises:
+        GraphError: If argument structure violates DAG constraints
+        DatabaseError: If Neo4j query fails
+        ValidationError: If argument components are invalid
     """
     try:
         async with driver.session() as session:
