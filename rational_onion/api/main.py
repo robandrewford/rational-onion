@@ -1,5 +1,7 @@
 # rational_onion/api/main.py
 
+from typing import List, Optional
+
 import os
 import uvicorn
 from fastapi import FastAPI, Depends, HTTPException, Security
@@ -18,12 +20,12 @@ from rational_onion.api.dag_visualization import router as dag_visualization_rou
 
 load_dotenv()
 
-API_KEY_NAME = "X-API-Key"
+API_KEY_NAME: str = "X-API-Key"
 api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=True)
 
-VALID_API_KEYS = os.getenv("VALID_API_KEYS", "").split(",")
+VALID_API_KEYS: List[str] = os.getenv("VALID_API_KEYS", "").split(",")
 
-def authenticate_api_key(api_key: str = Security(api_key_header)):
+async def authenticate_api_key(api_key: str = Security(api_key_header)) -> str:
     if api_key not in VALID_API_KEYS:
         raise HTTPException(status_code=401, detail="Invalid API Key")
     return api_key
@@ -54,9 +56,8 @@ app.include_router(dag_visualization_router, tags=["Visualization"])
 # Optional: endpoint to toggle caching
 app.post("/toggle-cache")(toggle_cache)
 
-# You can define a root endpoint for health checks
 @app.get("/")
-def root():
+async def root() -> dict[str, str]:
     return {"message": "Welcome to the Rational-Onion API!"}
 
 if __name__ == "__main__":
