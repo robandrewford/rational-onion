@@ -1,39 +1,148 @@
 ---
 description: About the structure of this project
-globs: 
+globs: ["rational_onion/**/*.py", "tests/**/*.py", "frontend/src/**/*"]
 ---
 
-1.	FastAPI Application (main.py in /api/ folder)
-•	This file is the entry point for the FastAPI app. It imports:
-    •	[argument_processing.py](mdc:rational_onion/api/argument_processing.py), [argument_verification.py](mdc:rational_onion/api/argument_verification.py), etc.
-    •	[argument_improvement.py](mdc:rational_onion/api/argument_improvement.py), [external_references.py](mdc:rational_onion/api/external_references.py), [dag_visualization.py](mdc:rational_onion/api/dag_visualization.py)
-•	Contains my router setup, CORS middleware, and API init logic.
-2.	Neo4j & Redis Config ([neo4j_service.py](mdc:rational_onion/services/neo4j_service.py), [caching_service.py](mdc:rational_onion/services/caching_service.py) in /services/)
-•	[neo4j_service.py](mdc:rational_onion/services/neo4j_service.py) holds:
-    •	AsyncGraphDatabase.driver init
-    •	Functions like init_redis()
-•	[caching_service.py](mdc:rational_onion/services/caching_service.py) keeps placeholders like toggle_cache, caching_enabled variables.
-3.	Argument Logic ([argument_processing.py](mdc:rational_onion/api/argument_processing.py), [argument_verification.py](mdc:rational_onion/api/argument_verification.py), [argument_improvement.py](mdc:rational_onion/api/argument_improvement.py) in /api/)
-•	[argument_processing.py](mdc:rational_onion/api/argument_processing.py):
-    •	Insert and retrieve arguments (Toulmin model)
-    •	Batch insert, batch retrieval, etc.
-•	[argument_verification.py](mdc:rational_onion/api/argument_verification.py):
-    •	Structural checks (cycles, orphaned nodes)
-    •	Contradiction detection
-•	[argument_improvement.py](mdc:rational_onion/api/argument_improvement.py):
-    •	NLP-based suggestions
-    •	Quality scoring
-    •	Additional logic referencing the [nlp_service.py](mdc:rational_onion/services/nlp_service.py)
-4.	NLP & External References ([nlp_service.py](mdc:rational_onion/services/nlp_service.py) / [external_references.py](mdc:rational_onion/api/external_references.py) in /services/)
-•	[nlp_service.py](mdc:rational_onion/services/nlp_service.py):
-    •	spacy and sentence-transformers loaded, plus query expansion
-•	[external_references.py](mdc:rational_onion/api/external_references.py):
-    •	Scholarly source queries
-    •	Ranking logic
-5.	DAG Visualization ([dag_visualization.py](mdc:rational_onion/api/dag_visualization.py) in /api/)
-    •	The endpoint that returns nodes and edges from Neo4j.
-6.	Front-End ([ArgumentDAG.jsx](mdc:frontend/src/ArgumentDAG.jsx) in /frontend/src/)
-    •	The Cytoscape or D3.js visualization code we generated.
-    •	If using React or Next.js, we’ll place it in pages/ or components/.
-7.	Test Code (Various test_*.py in /tests/)
-    •	Contains pytest or unittest scripts to verify each module.
+# Rational Onion - Project Structure Overview
+
+## Core Components
+
+### 1. API Layer (`/api/`)
+- **`main.py`**: FastAPI Application Entry Point
+  ```python
+  # Core imports and router setup
+  from fastapi import FastAPI
+  from .argument_processing import router as argument_router
+  # ... other routers
+  
+  # API configuration
+  app = FastAPI(
+      title="Rational Onion API",
+      description="Structured argument analysis with LLM integration"
+  )
+  ```
+  - Handles router setup, CORS middleware, API init
+  - Manages authentication and API versioning
+  - Centralizes error handling and logging
+
+- **Argument Processing Endpoints**
+  - `argument_processing.py`: Toulmin model operations
+    - Insert/retrieve arguments
+    - Batch processing capabilities
+    - Structure validation
+  - `argument_verification.py`: Structural validation
+    - Cycle detection in argument graphs
+    - Contradiction identification
+    - Logical consistency checks
+  - `argument_improvement.py`: LLM-enhanced refinement
+    - Quality scoring
+    - Improvement suggestions
+    - Integration with NLP services
+
+- **External Integration Endpoints**
+  - `external_references.py`: Citation management
+    - Scholarly source queries
+    - Citation validation
+    - Source ranking
+  - `dag_visualization.py`: Graph visualization
+    - Node/edge data formatting
+    - Layout computation
+    - Real-time updates
+
+### 2. Data Models (`/models/`)
+- **`toulmin_model.py`**: Argument Structures
+  - Core argument components
+  - Validation rules
+  - Serialization methods
+- **`dag_models.py`**: Graph Representations
+  - Node/edge definitions
+  - Graph traversal logic
+  - Relationship constraints
+
+### 3. Services (`/services/`)
+- **Database Integration**
+  - `neo4j_service.py`: Graph Database
+    ```python
+    # Neo4j connection and query management
+    AsyncGraphDatabase.driver setup
+    Graph operations (CRUD)
+    ```
+  - `caching_service.py`: Redis Cache
+    ```python
+    # Performance optimization
+    toggle_cache, caching_enabled controls
+    Cache invalidation logic
+    ```
+
+- **NLP Processing**
+  - `nlp_service.py`: Language Processing
+    ```python
+    # NLP pipeline configuration
+    spacy and sentence-transformers setup
+    Embedding generation
+    Query expansion
+    ```
+
+### 4. Testing (`/tests/`)
+- **API Tests**
+  - `test_api.py`: Endpoint validation
+  - `test_verification.py`: Logic checks
+  - `test_dag.py`: Graph operations
+
+### 5. Frontend (`/frontend/`)
+- **React Components**
+  - `ArgumentDAG.jsx`: Graph visualization
+    - Cytoscape/D3.js integration
+    - Interactive argument mapping
+    - Real-time updates
+
+## Integration Points
+
+### Database Connections
+```python
+# Neo4j Configuration
+NEO4J_URI=bolt://localhost:7687
+NEO4J_AUTH=neo4j/password
+
+# Redis Configuration
+REDIS_HOST=localhost
+REDIS_PORT=6379
+```
+
+### API Routes
+```python
+# Core endpoints
+/api/v1/arguments/  # Argument CRUD
+/api/v1/verify/     # Structure validation
+/api/v1/improve/    # LLM suggestions
+/api/v1/references/ # Citation management
+/api/v1/viz/        # Graph visualization
+```
+
+## Development Workflow
+
+### 1. Service Dependencies
+- Neo4j for argument graph storage
+- Redis for performance caching
+- FastAPI for API endpoints
+- React for frontend visualization
+
+### 2. Environment Setup
+```bash
+# Virtual environment
+python3.10 -m venv .venv
+source .venv/bin/activate
+
+# Dependencies
+pip install -r requirements.txt
+python -m spacy download en_core_web_md
+```
+
+### 3. Development Server
+```bash
+# API server
+uvicorn rational_onion.api.main:app --reload
+
+# Frontend
+cd frontend && npm start
+```

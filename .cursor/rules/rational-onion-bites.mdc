@@ -1,0 +1,107 @@
+---
+description: Core project goals and LLM integration specifications for Rational Onion
+globs: ["rational_onion/**/*.py", "tests/**/*.py"]
+---
+
+# Project Overview: Rational Onion - Structured LLM Reasoning System
+
+## Core Objective
+Build a system that enhances LLMs to perform structured analytical reasoning using Toulmin's model and DAG-based argument visualization, focusing on verifiable logic rather than traditional text generation.
+
+## Technical Architecture
+
+### 1. LLM Integration Components
+- **Argument Processing Engine**
+  - Toulmin model structure enforcement
+  - DAG-based argument representation
+  - Citation and source verification
+  - Logical consistency checking
+
+- **Knowledge Integration**
+  - RAG (Retrieval-Augmented Generation)
+  - Neo4j graph database for argument structure
+  - External citation database integration
+  - Spacy and sentence-transformers for NLP tasks
+
+### 2. Key Technical Requirements
+
+#### Structured Reasoning
+- Implement Toulmin model components:
+  ```python
+  class ToulminArgument:
+      claim: str
+      grounds: List[str]
+      warrant: str
+      backing: List[str]
+      rebuttal: Optional[str]
+      qualifier: Optional[str]
+  ```
+
+#### Verification System
+- Citation tracking
+- Logical consistency checks
+- Falsifiability validation
+- Source credibility scoring
+
+#### Graph-Based Analysis
+- DAG representation of arguments
+- Cycle detection
+- Relationship validation
+- Visual argument mapping
+
+### 3. LLM Integration Specifications
+
+#### Prompt Engineering
+- Structured output formatting
+- Chain-of-thought reasoning
+- Citation requirement enforcement
+- Logical consistency maintenance
+
+#### System Constraints
+- Prioritize logical validity over fluency
+- Maintain traceable reasoning chains
+- Enforce citation requirements
+- Verify logical structure integrity
+
+### 4. Development Guidelines
+
+#### Core Principles
+- Favor structured reasoning over statistical generation
+- Implement explicit verification steps
+- Maintain traceable logic chains
+- Support falsifiable arguments
+
+#### Integration Points
+- Neo4j for argument structure
+- Redis for caching
+- FastAPI for endpoint management
+- React for visualization
+- Spacy/Transformers for NLP
+
+#### Quality Metrics
+- Logical consistency score
+- Citation validity rate
+- Argument completeness check
+- Structure adherence validation
+
+## Implementation Notes
+
+### Key Files
+- `argument_processing.py`: Core Toulmin model implementation
+- `argument_verification.py`: Logic and structure validation
+- `dag_visualization.py`: Argument graph visualization
+- `nlp_service.py`: LLM and NLP integration
+
+### Integration Flow
+1. Input argument processing
+2. Structure validation
+3. Citation verification
+4. Logical consistency check
+5. Graph representation
+6. Visual rendering
+
+### Testing Focus
+- Logical consistency validation
+- Citation verification accuracy
+- Structure adherence checks
+- Graph integrity verification
