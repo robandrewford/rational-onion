@@ -2,6 +2,7 @@ pytest>=7.3.1
 fastapi==0.95.1
 starlette==0.26.1
 httpx==0.24.0
+types-requests>=2.31.0
 uvicorn>=0.20.0
 neo4j==5.7.0
 aioredis==2.0.1

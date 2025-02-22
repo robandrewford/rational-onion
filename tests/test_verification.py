@@ -1,13 +1,12 @@
 # tests/test_verification.py
-
 import pytest
 from fastapi.testclient import TestClient
 from fastapi import FastAPI, Request, HTTPException
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-from typing import Dict, List, Optional, Any
-from neo4j import AsyncGraphDatabase
+from typing import Dict, List, Optional, Any, AsyncGenerator, Union, TypedDict
+from neo4j import AsyncDriver, AsyncSession
 import asyncio
 from rational_onion.api.main import app
 from rational_onion.models.toulmin_model import ArgumentResponse
@@ -20,69 +19,27 @@ from rational_onion.api.errors import (
     ErrorType
 )
 import time
+from starlette.responses import Response as StarletteResponse
+import httpx
+from typing import Awaitable
 
 # Remove the global client
 # client = TestClient(app)
 
 # Create a fixture in conftest.py instead
 
-TEST_CONSTANTS = {
-    "VALID_RELATIONSHIPS": ["SUPPORTS", "JUSTIFIES", "CHALLENGES", "STRENGTHENS"],
-    "TIMEOUT_SECONDS": 2.0,
-    "MAX_NODES": 100,
-    "CONCURRENT_REQUESTS": 5
-}
+class TestConstants(TypedDict):
+    VALID_RELATIONSHIPS: List[str]
+    TIMEOUT_SECONDS: float
+    MAX_NODES: int
+    CONCURRENT_REQUESTS: int
 
-def test_verify_argument_structure(
-    test_client: TestClient,
-    valid_api_key: str
-) -> None:
-    """Tests the structural verification endpoint."""
-    response = test_client.get(
-        "/verify-argument-structure", 
-        headers={"X-API-Key": valid_api_key}
-    )
-    assert response.status_code == 200
-    
-    data = response.json()
-    assert_valid_verification_response(data)
-
-@pytest.mark.asyncio
-async def test_verify_argument_structure_with_cycles(
-    test_client: TestClient,
-    neo4j_test_driver: AsyncGraphDatabase,
-    valid_api_key: str
-) -> None:
-    """Tests cycle detection in argument structure."""
-    # Setup: Create a cyclic structure
-    async with neo4j_test_driver.session() as session:
-        await session.run("""
-            CREATE (c1:Claim {text: 'Claim 1'})
-            CREATE (c2:Claim {text: 'Claim 2'})
-            CREATE (c1)-[:SUPPORTS]->(c2)
-            CREATE (c2)-[:SUPPORTS]->(c1)
-        """)
-
-@pytest.mark.asyncio
-async def test_verify_argument_structure_with_orphans(
-    test_client: TestClient,
-    neo4j_test_driver: AsyncGraphDatabase,
-    valid_api_key: str
-) -> None:
-    """Tests orphaned node detection."""
-    # Setup: Create an orphaned node
-    async with neo4j_test_driver.session() as session:
-        await session.run("""
-            CREATE (c:Claim {text: 'Orphaned Claim'})
-        """)
-
-    response = test_client.get(
-        "/verify-argument-structure",
-        headers={"X-API-Key": valid_api_key}
-    )
-    assert response.status_code == 200
-    data = response.json()
-    assert len(data["orphaned_nodes"]) > 0
+TEST_CONSTANTS = TestConstants(
+    VALID_RELATIONSHIPS=["SUPPORTS", "JUSTIFIES", "CHALLENGES", "STRENGTHENS"],
+    TIMEOUT_SECONDS=2.0,
+    MAX_NODES=100,
+    CONCURRENT_REQUESTS=5
+)
 
 def assert_valid_verification_response(data: Dict[str, Any]) -> None:
     """Helper function to validate verification response structure."""
@@ -92,12 +49,16 @@ def assert_valid_verification_response(data: Dict[str, Any]) -> None:
     assert isinstance(data["has_cycles"], bool)
     assert isinstance(data["orphaned_nodes"], list)
     assert isinstance(data["message"], str)
+    assert isinstance(data.get("valid_relationships", []), list)
 
 @pytest.mark.asyncio
-async def test_verification_error_handling(test_client, neo4j_test_driver, valid_api_key):
+async def test_verification_error_handling(
+    test_client: TestClient,
+    neo4j_test_driver: AsyncDriver,
+    valid_api_key: str
+) -> None:
     """Tests error handling in verification endpoint."""
-    # Force an error by closing the database connection
-    await neo4j_test_driver.aclose()  # Use aclose instead of close
+    await neo4j_test_driver.close()
     
     response = test_client.get(
         "/verify-argument-structure",
@@ -110,9 +71,8 @@ settings = get_test_settings()
 
 class TestVerification:
     """Test suite for argument verification functionality"""
-
     @pytest.fixture(autouse=True)
-    async def setup_test_data(self, neo4j_test_driver):
+    async def setup_test_data(self, neo4j_test_driver: AsyncDriver) -> AsyncGenerator[None, None]:
         """Setup test data before each test and cleanup after"""
         async with neo4j_test_driver.session() as session:
             # Clear existing data
@@ -126,7 +86,7 @@ class TestVerification:
 
     async def create_test_argument(
         self, 
-        neo4j_test_driver: AsyncGraphDatabase, 
+        neo4j_test_driver: AsyncDriver, 
         argument_data: Optional[Dict[str, str]] = None
     ) -> None:
         """Helper to create test argument in database"""
@@ -148,7 +108,7 @@ class TestVerification:
     async def test_verify_argument_structure(
         self, 
         test_client: TestClient, 
-        neo4j_test_driver: AsyncGraphDatabase, 
+        neo4j_test_driver: AsyncDriver, 
         valid_api_key: str
     ) -> None:
         """
@@ -177,18 +137,12 @@ class TestVerification:
     async def test_verify_cyclic_structure(
         self,
         test_client: TestClient,
-        neo4j_test_driver: AsyncGraphDatabase,
+        neo4j_test_driver: AsyncDriver,
         valid_api_key: str
     ) -> None:
         """Test detection of cyclic arguments"""
         async with neo4j_test_driver.session() as session:
-            # Create cyclic structure
-            await session.run("""
-                CREATE (c1:Claim {text: 'Claim 1'})
-                CREATE (c2:Claim {text: 'Claim 2'})
-                CREATE (c1)-[:SUPPORTS]->(c2)
-                CREATE (c2)-[:SUPPORTS]->(c1)
-            """)
+            await create_cyclic_structure(session)
 
         response = test_client.get(
             "/verify-argument-structure",
@@ -204,19 +158,12 @@ class TestVerification:
     async def test_verify_orphaned_nodes(
         self,
         test_client: TestClient,
-        neo4j_test_driver: AsyncGraphDatabase,
+        neo4j_test_driver: AsyncDriver,
         valid_api_key: str
     ) -> None:
         """Test detection of orphaned nodes"""
         async with neo4j_test_driver.session() as session:
-            # Create orphaned nodes
-            await session.run("""
-                CREATE (c1:Claim {text: 'Connected Claim'})
-                CREATE (g1:Grounds {text: 'Connected Grounds'})
-                CREATE (g1)-[:SUPPORTS]->(c1)
-                CREATE (c2:Claim {text: 'Orphaned Claim'})
-                CREATE (w2:Warrant {text: 'Orphaned Warrant'})
-            """)
+            await create_orphaned_nodes(session)
 
         response = test_client.get(
             "/verify-argument-structure",
@@ -233,22 +180,12 @@ class TestVerification:
     async def test_verify_complex_structure(
         self,
         test_client: TestClient,
-        neo4j_test_driver: AsyncGraphDatabase,
+        neo4j_test_driver: AsyncDriver,
         valid_api_key: str
     ) -> None:
         """Test verification of complex argument structure"""
         async with neo4j_test_driver.session() as session:
-            await session.run("""
-                CREATE (c1:Claim {text: 'Main Claim'})
-                CREATE (g1:Grounds {text: 'Primary Grounds'})
-                CREATE (w1:Warrant {text: 'Primary Warrant'})
-                CREATE (r1:Rebuttal {text: 'Rebuttal'})
-                CREATE (g2:Grounds {text: 'Supporting Grounds'})
-                CREATE (g1)-[:SUPPORTS]->(c1)
-                CREATE (w1)-[:JUSTIFIES]->(c1)
-                CREATE (r1)-[:CHALLENGES]->(c1)
-                CREATE (g2)-[:SUPPORTS]->(g1)
-            """)
+            await create_complex_structure(session)
 
         response = test_client.get(
             "/verify-argument-structure",
@@ -264,7 +201,7 @@ class TestVerification:
     async def test_database_error_handling(
         self,
         test_client: TestClient,
-        neo4j_test_driver: AsyncGraphDatabase,
+        neo4j_test_driver: AsyncDriver,
         valid_api_key: str
     ) -> None:
         """Test database error handling"""
@@ -291,7 +228,7 @@ class TestVerification:
     async def test_invalid_relationship_types(
         self,
         test_client: TestClient,
-        neo4j_test_driver: AsyncGraphDatabase,
+        neo4j_test_driver: AsyncDriver,
         valid_api_key: str,
         invalid_relation: str
     ) -> None:
@@ -347,7 +284,7 @@ class TestVerification:
     async def test_verify_mixed_relationship_types(
         self,
         test_client: TestClient,
-        neo4j_test_driver: AsyncGraphDatabase,
+        neo4j_test_driver: AsyncDriver,
         valid_api_key: str
     ) -> None:
         """Test verification of arguments with multiple relationship types"""
@@ -398,7 +335,7 @@ class TestVerification:
     async def test_verify_empty_database(
         self,
         test_client: TestClient,
-        neo4j_test_driver: AsyncGraphDatabase,
+        neo4j_test_driver: AsyncDriver,
         valid_api_key: str
     ) -> None:
         """Test verification behavior with empty database"""
@@ -417,53 +354,96 @@ class TestVerification:
     async def test_concurrent_verification_access(
         self,
         test_client: TestClient,
-        neo4j_test_driver: AsyncGraphDatabase,
+        neo4j_test_driver: AsyncDriver,
         valid_api_key: str
     ) -> None:
         """Test concurrent access to verification endpoint"""
-        async def make_request():
-            return test_client.get(
-                "/verify-argument-structure",
-                headers={"X-API-Key": valid_api_key}
-            )
-        
-        # Make multiple concurrent requests
-        tasks = [make_request() for _ in range(5)]
-        responses = await asyncio.gather(*tasks)
-        
-        # Verify all requests succeeded
-        assert all(r.status_code == 200 for r in responses)
-        # Verify consistent responses
-        data = [r.json() for r in responses]
-        assert len(set(str(d) for d in data)) == 1  # All responses should be identical
+        async with httpx.AsyncClient(app=app, base_url="http://test") as async_client:
+            async def make_request() -> httpx.Response:
+                return await async_client.get(
+                    "/verify-argument-structure",
+                    headers={"X-API-Key": valid_api_key}
+                )
+            
+            # Make multiple concurrent requests
+            tasks = [make_request() for _ in range(TEST_CONSTANTS["CONCURRENT_REQUESTS"])]  # type: ignore
+            responses = await asyncio.gather(*tasks)
+            
+            # Verify all requests succeeded
+            assert all(r.status_code == 200 for r in responses)
+            # Verify consistent responses
+            data = [r.json() for r in responses]
+            assert len(set(str(d) for d in data)) == 1  # All responses should be identical
 
     @pytest.mark.asyncio
     async def test_large_argument_structure_performance(
         self,
         test_client: TestClient,
-        neo4j_test_driver: AsyncGraphDatabase,
+        neo4j_test_driver: AsyncDriver,
         valid_api_key: str
     ) -> None:
         """Test verification performance with large argument structure"""
-        async with neo4j_test_driver.session() as session:
-            # Create a large argument structure
-            await session.run("""
-                UNWIND range(1, 100) as i
-                CREATE (c:Claim {text: 'Claim ' + toString(i)})
-                WITH collect(c) as claims
-                UNWIND range(0, size(claims)-2) as i
-                WITH claims[i] as c1, claims[i+1] as c2
-                CREATE (c1)-[:SUPPORTS]->(c2)
-            """)
-        
-        start_time = time.time()
-        response = test_client.get(
-            "/verify-argument-structure",
-            headers={"X-API-Key": valid_api_key}
-        )
-        elapsed_time = time.time() - start_time
-        
-        assert response.status_code == 200
-        assert elapsed_time < 2.0  # Should complete within 2 seconds
-        data = response.json()
-        assert not data["has_cycles"]
+        try:
+            async with neo4j_test_driver.session() as session:
+                await create_large_structure(session)
+            
+            start_time = time.perf_counter()
+            response = test_client.get(
+                "/verify-argument-structure", 
+                headers={"X-API-Key": valid_api_key}
+            )
+            elapsed_time = time.perf_counter() - start_time
+            assert response.status_code == 200
+            assert elapsed_time < TEST_CONSTANTS["TIMEOUT_SECONDS"]  # type: ignore
+            data = response.json()
+            assert not data["has_cycles"]
+        finally:
+            # Ensure cleanup of large structure
+            async with neo4j_test_driver.session() as session:
+                await session.run("MATCH (n) DETACH DELETE n")
+
+async def create_cyclic_structure(session: AsyncSession) -> None:
+    """Create a test cyclic argument structure."""
+    result: Awaitable[Any] = session.run("""
+        CREATE (c1:Claim {text: 'Claim 1'})
+        CREATE (c2:Claim {text: 'Claim 2'})
+        CREATE (c1)-[:SUPPORTS]->(c2)
+        CREATE (c2)-[:SUPPORTS]->(c1)
+    """)
+    await result
+
+async def create_orphaned_nodes(session: AsyncSession) -> None:
+    """Create test orphaned nodes."""
+    result: Awaitable[Any] = session.run("""
+        CREATE (c1:Claim {text: 'Connected Claim'})
+        CREATE (g1:Grounds {text: 'Connected Grounds'})
+        CREATE (g1)-[:SUPPORTS]->(c1)
+        CREATE (c2:Claim {text: 'Orphaned Claim'})
+        CREATE (w2:Warrant {text: 'Orphaned Warrant'})
+    """)
+    await result
+
+async def create_complex_structure(session: AsyncSession) -> None:
+    """Create a complex test argument structure."""
+    await session.run("""
+        CREATE (c1:Claim {text: 'Main Claim'})
+        CREATE (g1:Grounds {text: 'Primary Grounds'})
+        CREATE (w1:Warrant {text: 'Primary Warrant'})
+        CREATE (r1:Rebuttal {text: 'Rebuttal'})
+        CREATE (g2:Grounds {text: 'Supporting Grounds'})
+        CREATE (g1)-[:SUPPORTS]->(c1)
+        CREATE (w1)-[:JUSTIFIES]->(c1)
+        CREATE (r1)-[:CHALLENGES]->(c1)
+        CREATE (g2)-[:SUPPORTS]->(g1)
+    """)
+
+async def create_large_structure(session: AsyncSession) -> None:
+    """Create a large test argument structure."""
+    await session.run("""
+        UNWIND range(1, 100) as i
+        CREATE (c:Claim {text: 'Claim ' + toString(i)})
+        WITH collect(c) as claims
+        UNWIND range(0, size(claims)-2) as i
+        WITH claims[i] as c1, claims[i+1] as c2
+        CREATE (c1)-[:SUPPORTS]->(c2)
+    """)
