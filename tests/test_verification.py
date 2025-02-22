@@ -35,7 +35,7 @@ class TestConstants(TypedDict):
     CONCURRENT_REQUESTS: int
 
 TEST_CONSTANTS = TestConstants(
-    VALID_RELATIONSHIPS=["SUPPORTS", "JUSTIFIES", "CHALLENGES", "STRENGTHENS"],
+    VALID_RELATIONSHIPS=["SUPPORTS", "JUSTIFIES", "CHALLENGES"],
     TIMEOUT_SECONDS=2.0,
     MAX_NODES=100,
     CONCURRENT_REQUESTS=5
@@ -72,17 +72,13 @@ settings = get_test_settings()
 class TestVerification:
     """Test suite for argument verification functionality"""
     @pytest.fixture(autouse=True)
-    async def setup_test_data(self, neo4j_test_driver: AsyncDriver) -> AsyncGenerator[None, None]:
+    async def setup_test_data(self, neo4j_test_session: AsyncSession) -> AsyncGenerator[None, None]:
         """Setup test data before each test and cleanup after"""
-        async with neo4j_test_driver.session() as session:
-            # Clear existing data
-            await session.run("MATCH (n) DETACH DELETE n")
-            
+        # Clear existing data
+        await neo4j_test_session.run("MATCH (n) DETACH DELETE n")
         yield
-        
         # Cleanup after test
-        async with neo4j_test_driver.session() as session:
-            await session.run("MATCH (n) DETACH DELETE n")
+        await neo4j_test_session.run("MATCH (n) DETACH DELETE n")
 
     async def create_test_argument(
         self, 
@@ -106,43 +102,39 @@ class TestVerification:
 
     @pytest.mark.asyncio
     async def test_verify_argument_structure(
-        self, 
-        test_client: TestClient, 
-        neo4j_test_driver: AsyncDriver, 
+        self,
+        test_client: TestClient,
+        neo4j_test_session: AsyncSession,
         valid_api_key: str
     ) -> None:
-        """
-        Tests the structural verification endpoint.
-        
-        Args:
-            test_client: FastAPI test client
-            neo4j_test_driver: Neo4j database driver
-            valid_api_key: Valid API key for authentication
-            
-        Verifies:
-            - Endpoint returns 200 status code
-            - Response contains expected verification fields
-            - Response structure matches expected format
-        """
+        """Test the structural verification endpoint"""
+        # Insert test data
+        await neo4j_test_session.run("""
+            CREATE (c:Claim {text: 'Test Claim'})
+            CREATE (g:Grounds {text: 'Test Grounds'})
+            CREATE (w:Warrant {text: 'Test Warrant'})
+            CREATE (g)-[:SUPPORTS]->(c)
+            CREATE (w)-[:JUSTIFIES]->(c)
+        """)
+
         response = test_client.get(
-            "/verify-argument-structure", 
+            "/verify-argument-structure",
             headers={"X-API-Key": valid_api_key}
         )
         assert response.status_code == 200
-        
         data = response.json()
+        assert not data["has_cycles"]
         assert_valid_verification_response(data)
 
     @pytest.mark.asyncio
     async def test_verify_cyclic_structure(
         self,
         test_client: TestClient,
-        neo4j_test_driver: AsyncDriver,
+        neo4j_test_session: AsyncSession,
         valid_api_key: str
     ) -> None:
         """Test detection of cyclic arguments"""
-        async with neo4j_test_driver.session() as session:
-            await create_cyclic_structure(session)
+        await create_cyclic_structure(neo4j_test_session)
 
         response = test_client.get(
             "/verify-argument-structure",
@@ -158,12 +150,11 @@ class TestVerification:
     async def test_verify_orphaned_nodes(
         self,
         test_client: TestClient,
-        neo4j_test_driver: AsyncDriver,
+        neo4j_test_session: AsyncSession,
         valid_api_key: str
     ) -> None:
         """Test detection of orphaned nodes"""
-        async with neo4j_test_driver.session() as session:
-            await create_orphaned_nodes(session)
+        await create_orphaned_nodes(neo4j_test_session)
 
         response = test_client.get(
             "/verify-argument-structure",
@@ -180,12 +171,11 @@ class TestVerification:
     async def test_verify_complex_structure(
         self,
         test_client: TestClient,
-        neo4j_test_driver: AsyncDriver,
+        neo4j_test_session: AsyncSession,
         valid_api_key: str
     ) -> None:
         """Test verification of complex argument structure"""
-        async with neo4j_test_driver.session() as session:
-            await create_complex_structure(session)
+        await create_complex_structure(neo4j_test_session)
 
         response = test_client.get(
             "/verify-argument-structure",
@@ -228,17 +218,16 @@ class TestVerification:
     async def test_invalid_relationship_types(
         self,
         test_client: TestClient,
-        neo4j_test_driver: AsyncDriver,
+        neo4j_test_session: AsyncSession,
         valid_api_key: str,
         invalid_relation: str
     ) -> None:
         """Test handling of various invalid relationship types"""
-        async with neo4j_test_driver.session() as session:
-            await session.run(f"""
-                CREATE (c1:Claim {{text: 'Test Claim'}})
-                CREATE (c2:Claim {{text: 'Another Claim'}})
-                CREATE (c1)-[:{invalid_relation}]->(c2)
-            """)
+        await neo4j_test_session.run(f"""
+            CREATE (c1:Claim {{text: 'Test Claim'}})
+            CREATE (c2:Claim {{text: 'Another Claim'}})
+            CREATE (c1)-[:{invalid_relation}]->(c2)
+        """)
         
         response = test_client.get(
             "/verify-argument-structure",
@@ -264,8 +253,9 @@ class TestVerification:
         
         assert response.status_code == 422
         data = response.json()
-        assert data["error_type"] == ErrorType.VALIDATION_ERROR.value
-        assert "details" in data
+        assert "detail" in data
+        assert isinstance(data["detail"], list)
+        assert len(data["detail"]) > 0
 
     def assert_error_response(
         self, 
@@ -284,20 +274,19 @@ class TestVerification:
     async def test_verify_mixed_relationship_types(
         self,
         test_client: TestClient,
-        neo4j_test_driver: AsyncDriver,
+        neo4j_test_session: AsyncSession,
         valid_api_key: str
     ) -> None:
         """Test verification of arguments with multiple relationship types"""
-        async with neo4j_test_driver.session() as session:
-            await session.run("""
-                CREATE (c1:Claim {text: 'Main Claim'})
-                CREATE (g1:Grounds {text: 'Supporting Evidence'})
-                CREATE (w1:Warrant {text: 'Logical Connection'})
-                CREATE (b1:Backing {text: 'Additional Support'})
-                CREATE (g1)-[:SUPPORTS]->(c1)
-                CREATE (w1)-[:JUSTIFIES]->(c1)
-                CREATE (b1)-[:STRENGTHENS]->(w1)
-            """)
+        await neo4j_test_session.run("""
+            CREATE (c1:Claim {text: 'Main Claim'})
+            CREATE (g1:Grounds {text: 'Supporting Evidence'})
+            CREATE (w1:Warrant {text: 'Logical Connection'})
+            CREATE (b1:Backing {text: 'Additional Support'})
+            CREATE (g1)-[:SUPPORTS]->(c1)
+            CREATE (w1)-[:JUSTIFIES]->(c1)
+            CREATE (b1)-[:STRENGTHENS]->(w1)
+        """)
         
         response = test_client.get(
             "/verify-argument-structure",
@@ -335,7 +324,7 @@ class TestVerification:
     async def test_verify_empty_database(
         self,
         test_client: TestClient,
-        neo4j_test_driver: AsyncDriver,
+        neo4j_test_session: AsyncSession,
         valid_api_key: str
     ) -> None:
         """Test verification behavior with empty database"""
@@ -354,7 +343,7 @@ class TestVerification:
     async def test_concurrent_verification_access(
         self,
         test_client: TestClient,
-        neo4j_test_driver: AsyncDriver,
+        neo4j_test_session: AsyncSession,
         valid_api_key: str
     ) -> None:
         """Test concurrent access to verification endpoint"""
@@ -379,13 +368,12 @@ class TestVerification:
     async def test_large_argument_structure_performance(
         self,
         test_client: TestClient,
-        neo4j_test_driver: AsyncDriver,
+        neo4j_test_session: AsyncSession,
         valid_api_key: str
     ) -> None:
         """Test verification performance with large argument structure"""
         try:
-            async with neo4j_test_driver.session() as session:
-                await create_large_structure(session)
+            await create_large_structure(neo4j_test_session)
             
             start_time = time.perf_counter()
             response = test_client.get(
@@ -399,8 +387,7 @@ class TestVerification:
             assert not data["has_cycles"]
         finally:
             # Ensure cleanup of large structure
-            async with neo4j_test_driver.session() as session:
-                await session.run("MATCH (n) DETACH DELETE n")
+            await neo4j_test_session.run("MATCH (n) DETACH DELETE n")
 
 async def create_cyclic_structure(session: AsyncSession) -> None:
     """Create a test cyclic argument structure."""

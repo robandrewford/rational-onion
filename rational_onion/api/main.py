@@ -1,17 +1,17 @@
 # rational_onion/api/main.py
 
-from typing import List, Optional
-
+from typing import List, Optional, Dict, Any
 import os
 import uvicorn
-from fastapi import FastAPI, Depends, HTTPException, Security
+from fastapi import FastAPI, Depends, HTTPException, Security, Request
 from fastapi.security.api_key import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-from neo4j import AsyncGraphDatabase
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 # Local imports
-from rational_onion.services.neo4j_service import driver
 from rational_onion.services.caching_service import caching_enabled, toggle_cache
 from rational_onion.api.argument_processing import router as argument_processing_router
 from rational_onion.api.argument_verification import router as argument_verification_router
@@ -19,6 +19,7 @@ from rational_onion.api.argument_improvement import router as argument_improveme
 from rational_onion.api.external_references import router as external_references_router
 from rational_onion.api.dag_visualization import router as dag_visualization_router
 from rational_onion.config import get_settings, Settings
+from rational_onion.api.dependencies import limiter
 
 # FastAPI app initialization
 settings = get_settings()
@@ -29,6 +30,11 @@ app = FastAPI(
     version=settings.API_VERSION,
     debug=settings.DEBUG
 )
+
+# Add rate limiter to app state and middleware
+app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS Middleware for the front-end
 app.add_middleware(
@@ -50,11 +56,12 @@ app.include_router(dag_visualization_router, tags=["Visualization"])
 app.post("/toggle-cache")(toggle_cache)
 
 @app.get("/")
-async def root() -> dict[str, str]:
+async def root() -> Dict[str, str]:
     return {"message": "Welcome to the Rational-Onion API!"}
 
 @app.get("/health")
-async def health_check():
+@limiter.limit(settings.RATE_LIMIT)
+async def health_check(request: Request) -> Dict[str, Any]:
     """
     Check system health and component status.
     
@@ -79,20 +86,6 @@ async def health_check():
         "version": settings.API_VERSION,
         "debug": settings.DEBUG
     }
-
-async def get_db():
-    driver = AsyncGraphDatabase.driver(
-        settings.NEO4J_URI,
-        auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD),
-        database=settings.NEO4J_DATABASE,
-        max_connection_pool_size=settings.NEO4J_MAX_CONNECTION_POOL_SIZE,
-        connection_timeout=settings.NEO4J_CONNECTION_TIMEOUT,
-        encrypted=settings.NEO4J_ENCRYPTION_ENABLED
-    )
-    try:
-        yield driver
-    finally:
-        await driver.close()
 
 if __name__ == "__main__":
     uvicorn.run(app, host=settings.API_HOST, port=settings.API_PORT)

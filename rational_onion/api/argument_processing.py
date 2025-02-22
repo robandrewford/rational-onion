@@ -1,71 +1,99 @@
 # rational_onion/api/argument_processing.py
 
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Dict, Any
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from rational_onion.services.neo4j_service import driver
 from rational_onion.models.toulmin_model import ArgumentRequest, ArgumentResponse
 from rational_onion.config import get_settings
+from rational_onion.api.errors import ValidationError, ArgumentError, DatabaseError
+from rational_onion.api.dependencies import limiter, get_db
+from neo4j import AsyncSession
 
 router = APIRouter()
 
 settings = get_settings()
 
-@router.post("/insert-argument", response_model=ArgumentResponse)
-async def insert_argument(arg: ArgumentRequest):
-    """
-    Insert a new argument into the system using Toulmin's model.
-    
-    Parameters:
-        arg: ArgumentRequest object containing:
-            - claim: Main position being argued
-            - grounds: Evidence supporting the claim
-            - warrant: Reasoning connecting grounds to claim
-            - rebuttal (optional): Potential counter-arguments
-        
-    Returns:
-        ArgumentResponse containing:
-            - Processed argument components
-            - Confirmation message
-            - Argument ID for future reference
-        
-    Raises:
-        ArgumentError: If argument structure violates Toulmin model rules
-        ValidationError: If component lengths exceed limits
-        DatabaseError: If Neo4j storage operation fails
-    """
-    try:
-        async with driver.session() as session:
-            await session.run(
-                """
-                MERGE (c:Claim {text: $claim})
-                MERGE (g:Grounds {text: $grounds})
-                MERGE (w:Warrant {text: $warrant})
-                MERGE (g)-[:SUPPORTED_BY]->(c)
-                MERGE (w)-[:JUSTIFIED_BY]->(c)
-                FOREACH(_ IN CASE WHEN $rebuttal IS NOT NULL THEN [1] ELSE [] END |
-                    MERGE (r:Rebuttal {text: $rebuttal})
-                    MERGE (r)-[:CHALLENGES]->(c)
-                )
-                """,
-                claim=arg.claim,
-                grounds=arg.grounds,
-                warrant=arg.warrant,
-                rebuttal=arg.rebuttal
-            )
-        return {
-            "claim": arg.claim,
-            "grounds": arg.grounds,
-            "warrant": arg.warrant,
-            "rebuttal": arg.rebuttal,
-            "message": "Argument successfully inserted."
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Argument insertion failed: {e}")
+def validate_argument_length(argument: ArgumentRequest) -> None:
+    """Validate argument field lengths"""
+    if len(argument.claim) > settings.MAX_CLAIM_LENGTH:
+        raise ValidationError(
+            f"Claim exceeds maximum length of {settings.MAX_CLAIM_LENGTH} characters",
+            field="claim"
+        )
+    if len(argument.grounds) > settings.MAX_GROUNDS_LENGTH:
+        raise ValidationError(
+            f"Grounds exceed maximum length of {settings.MAX_GROUNDS_LENGTH} characters",
+            field="grounds"
+        )
+    if len(argument.warrant) > settings.MAX_WARRANT_LENGTH:
+        raise ValidationError(
+            f"Warrant exceeds maximum length of {settings.MAX_WARRANT_LENGTH} characters",
+            field="warrant"
+        )
 
-def validate_argument_length(argument: Dict[str, str]) -> None:
-    """Validate argument component lengths"""
-    if len(argument["claim"]) > settings.MAX_CLAIM_LENGTH:
-        raise ValidationError("Claim exceeds maximum length")
-    if len(argument["grounds"]) > settings.MAX_GROUNDS_LENGTH:
-        raise ValidationError("Grounds exceed maximum length")
-    if len(argument["warrant"]) > settings.MAX_WARRANT_LENGTH:
-        raise ValidationError("Warrant exceeds maximum length")
+@router.post("/insert-argument", response_model=Dict[str, Any])
+@limiter.limit("10/minute")
+async def insert_argument(
+    request: Request,
+    argument: ArgumentRequest,
+    session: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Insert a new argument into the system using Toulmin's model"""
+    try:
+        # Validate argument lengths
+        validate_argument_length(argument)
+
+        # Insert argument into Neo4j
+        query = """
+        CREATE (a:Argument {
+            claim: $claim,
+            grounds: $grounds,
+            warrant: $warrant,
+            created_at: datetime()
+        })
+        RETURN id(a) as argument_id
+        """
+        result = await session.run(
+            query,
+            {
+                "claim": argument.claim,
+                "grounds": argument.grounds,
+                "warrant": argument.warrant
+            }
+        )
+        record = await result.single()
+        
+        if not record:
+            raise DatabaseError("Failed to create argument")
+
+        return {
+            "status": "success",
+            "message": "Argument inserted successfully",
+            "argument_id": record["argument_id"]
+        }
+
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_type": "VALIDATION_ERROR",
+                "message": str(e),
+                "field": getattr(e, "field", None)
+            }
+        )
+    except DatabaseError as e:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error_type": "DATABASE_ERROR",
+                "message": str(e)
+            }
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error_type": "INTERNAL_ERROR",
+                "message": "An unexpected error occurred"
+            }
+        )

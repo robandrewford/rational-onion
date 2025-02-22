@@ -1,12 +1,15 @@
 # rational_onion/models/toulmin_model.py
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, constr
 from typing import Optional, List, Dict, Any
+from rational_onion.config import get_settings
+
+settings = get_settings()
 
 class ArgumentRequest(BaseModel):
-    claim: str
-    grounds: str
-    warrant: str
+    claim: constr(min_length=1, max_length=settings.MAX_CLAIM_LENGTH)
+    grounds: constr(min_length=1, max_length=settings.MAX_GROUNDS_LENGTH)
+    warrant: constr(min_length=1, max_length=settings.MAX_WARRANT_LENGTH)
     rebuttal: Optional[str] = None
 
 class ArgumentResponse(BaseModel):

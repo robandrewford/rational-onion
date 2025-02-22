@@ -2,15 +2,42 @@ from enum import Enum
 from typing import Dict, Any, Optional
 from fastapi import HTTPException
 
-class ErrorType(Enum):
-    """Enumeration of possible error types"""
-    VALIDATION_ERROR = "validation_error"
-    DATABASE_ERROR = "database_error"
-    AUTHENTICATION_ERROR = "authentication_error"
-    RATE_LIMIT_ERROR = "rate_limit_error"
-    ARGUMENT_ERROR = "argument_error"
-    GRAPH_ERROR = "graph_error"
-    CITATION_ERROR = "citation_error"
+class ErrorType(str, Enum):
+    """Enumeration of error types"""
+    VALIDATION_ERROR = "VALIDATION_ERROR"
+    DATABASE_ERROR = "DATABASE_ERROR"
+    GRAPH_ERROR = "GRAPH_ERROR"
+    ARGUMENT_ERROR = "ARGUMENT_ERROR"
+    CITATION_ERROR = "CITATION_ERROR"
+
+class BaseError(Exception):
+    """Base error class for custom exceptions"""
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        self.message = message
+        self.details = details or {}
+        super().__init__(self.message)
+
+class ValidationError(BaseError):
+    """Raised when input validation fails"""
+    def __init__(self, message: str, field: str):
+        super().__init__(message, {"field": field})
+        self.field = field
+
+class ArgumentError(BaseError):
+    """Raised when argument structure is invalid"""
+    pass
+
+class DatabaseError(BaseError):
+    """Raised when database operations fail"""
+    pass
+
+class GraphError(BaseError):
+    """Raised when graph operations or validations fail"""
+    pass
+
+class CitationError(BaseError):
+    """Raised when citation verification fails"""
+    pass
 
 class BaseAPIError(HTTPException):
     """Base class for API errors"""
@@ -27,56 +54,4 @@ class BaseAPIError(HTTPException):
             "message": message,
             "details": details or {}
         }
-        super().__init__(status_code=status_code, detail=detail)
-
-class ArgumentError(BaseAPIError):
-    """Error for argument-related issues"""
-    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
-        super().__init__(
-            error_type=ErrorType.ARGUMENT_ERROR,
-            message=message,
-            status_code=400,
-            details=details
-        )
-
-class DatabaseError(BaseAPIError):
-    """Error for database operations"""
-    def __init__(self, operation: str, message: str, details: Optional[Dict[str, Any]] = None):
-        details = details or {}
-        details["operation"] = operation
-        super().__init__(
-            error_type=ErrorType.DATABASE_ERROR,
-            message=message,
-            status_code=500,
-            details=details
-        )
-
-class ValidationError(BaseAPIError):
-    """Error for validation failures"""
-    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
-        super().__init__(
-            error_type=ErrorType.VALIDATION_ERROR,
-            message=message,
-            status_code=422,
-            details=details
-        )
-
-class GraphError(BaseAPIError):
-    """Error for graph structure issues"""
-    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
-        super().__init__(
-            error_type=ErrorType.GRAPH_ERROR,
-            message=message,
-            status_code=400,
-            details=details
-        )
-
-class CitationError(BaseAPIError):
-    """Error for citation verification issues"""
-    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
-        super().__init__(
-            error_type=ErrorType.CITATION_ERROR,
-            message=message,
-            status_code=400,
-            details=details
-        ) 
+        super().__init__(status_code=status_code, detail=detail) 
