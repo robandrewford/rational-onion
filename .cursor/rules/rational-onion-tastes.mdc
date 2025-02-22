@@ -1,63 +1,229 @@
 ---
-description: 
-globs: 
+description: Technical strategy and implementation approach for Rational Onion
+globs: ["rational_onion/**/*.py", "tests/**/*.py", "frontend/src/**/*"]
 ---
-1) Framework Adaptation: How LLMs Can Follow Structured Analytical Reasoning
 
-LLMs, by default, generate content based on probabilistic patterns rather than explicit logical structuring. To adapt them for formal reasoning, several methodologies can be applied:
-	•	Explicitly Embedding Toulmin’s Model or Formal Logic
-	•	Train the LLM to recognize Claims, Grounds, Warrants, Backing, Qualifiers, and Rebuttals as structured sections.
-	•	Use few-shot prompting with labeled exemplars to establish patterns for structured reasoning.
-	•	Utilize recursive breakdown techniques, where each claim is iteratively expanded into its Toulmin components.
-	•	Fine-Tuning for Logical Cohesion
-	•	Create a dataset explicitly formatted in structured argumentation, reinforcing logical consistency over stylistic fluency.
-	•	Implement reinforcement learning with human feedback (RLHF), where logic experts validate structured reasoning rather than generic fluency.
-	•	Hybrid Integration with External Logic Engines
-	•	Connect LLMs with formal logic solvers (e.g., Prover9, Lean, Isabelle, Coq).
-	•	Use neural-symbolic reasoning, where the LLM generates structured arguments that are verified by symbolic logic tools.
+# Rational Onion - Technical Strategy
 
-2) Citations & Verification: Ensuring Logically Falsifiable Outputs
+## Core Architecture Components
 
-LLMs are not inherently built for verification; however, structured verification techniques can be introduced:
-	•	Retrieval-Augmented Generation (RAG) for Citation Consistency
-	•	Instead of relying on internal weights, integrate LLMs with external knowledge retrieval (e.g., vector databases, graph embeddings).
-	•	Responses should be constrained by ground-truth knowledge bases (e.g., academic databases, legal texts, structured corpora).
-	•	Citations should be dynamically retrieved and appended to claims, reducing hallucination.
-	•	Embedding Formal Verification within Output
-	•	Use structured logic frameworks (e.g., predicate logic, argumentation frameworks) where the LLM produces falsifiable statements.
-	•	Implement truth-checking pipelines, where generated arguments are fact-checked post-generation using separate knowledge verification models.
-	•	Logical Counterfactual Testing
-	•	Test generated arguments against contradictory evidence to assess whether an LLM-generated claim holds under scrutiny.
-	•	Employ adversarial questioning models to evaluate internal consistency.
+### 1. Argument Processing Pipeline
+```mermaid
+graph TD
+    A[Raw Input] --> B[LLM Structure Analysis]
+    B --> C[Toulmin Model Validation]
+    C --> D[Citation Verification]
+    D --> E[Graph Construction]
+    E --> F[Neo4j Storage]
+    F --> G[Visualization]
+```
 
-3) Chain of Thought Consistency: Ensuring Logical Rigor
+### 2. LLM Integration Strategy
 
-To prevent LLMs from drifting into freeform, stylistic text generation, employ controlled reasoning techniques:
-	•	Explicit Chain-of-Thought (CoT) Constraints
-	•	Instead of open-ended prompting, enforce stepwise reasoning chains where every response is required to:
-	1.	State a claim explicitly.
-	2.	List supporting evidence (grounds).
-	3.	Identify logical dependencies (warrants).
-	4.	Generate counterpoints and assess validity.
-	•	Self-Consistency Sampling
-	•	Instead of one deterministic response, generate multiple reasoning paths and evaluate their consistency across iterations.
-	•	This approach is used in math-based LLM reasoning, ensuring the final output is derived from a robust reasoning process.
-	•	Prompt Engineering for Logical Flow
-	•	Use programmatic scaffolding (e.g., instructing the LLM to output in JSON-formatted logic trees rather than prose).
-	•	Require outputs to follow a Directed Acyclic Graph (DAG)-style argumentation, ensuring stepwise validation.
+#### Prompt Engineering
+```python
+TOULMIN_TEMPLATE = """
+Given the following argument, analyze using Toulmin's model:
+{input_text}
 
-4) Tools & Techniques: Combining LLM Features with External Systems
+Requirements:
+1. Each claim must have verifiable grounds
+2. Warrants must explicitly connect grounds to claims
+3. All citations must be traceable
+4. Identify potential rebuttals
+5. Specify qualifiers for claim scope
 
-For practical implementation, a hybrid system is ideal, combining LLMs with structured reasoning tools. Here’s a structured workflow:
-	1.	Pre-Processing: Knowledge Retrieval
-	•	Use RAG-based augmentation (e.g., LangChain, LlamaIndex) to fetch ground-truth data before response generation.
-	•	Structure retrieved data in a knowledge graph (e.g., Neo4j, GraphDB) to allow structured argumentation.
-	2.	Processing: Logic-Driven LLM Reasoning
-	•	Implement Toulmin model prompting, breaking down reasoning into structured sections.
-	•	Fine-tune LLMs on argumentation-specific datasets.
-	3.	Post-Processing: Logical Verification & Falsifiability
-	•	Run responses through formal logic solvers (e.g., Prolog, Lean, Coq).
-	•	Apply automated fact-checking using external knowledge sources.
-	4.	Visualization & Structuring
-	•	Store and display arguments in DAG-based graph representations, allowing logical dependencies to be visually validated.
-	•	Use argumentation mapping tools like Argdown, DebateGraph, or Rationale to enforce structured reasoning.
+Output Schema:
+{
+    "claim": str,
+    "grounds": List[{"statement": str, "citation": str}],
+    "warrant": {"logic": str, "backing": List[str]},
+    "rebuttal": Optional[str],
+    "qualifier": Optional[str]
+}
+"""
+```
+
+#### Validation Chain
+```python
+class ArgumentValidator:
+    async def validate(self, argument: ToulminArgument) -> ValidationResult:
+        steps = [
+            self.validate_structure(),      # Check Toulmin completeness
+            self.verify_citations(),        # Verify source authenticity
+            self.check_logical_flow(),      # Ensure warrant connects grounds to claim
+            self.detect_contradictions(),   # Find internal inconsistencies
+            self.validate_graph_structure() # Ensure DAG properties
+        ]
+        return await asyncio.gather(*steps)
+```
+
+### 3. Data Flow Architecture
+
+#### Processing Pipeline
+```python
+class ArgumentProcessor:
+    def process(self, input_text: str) -> ProcessedArgument:
+        return (
+            self.preprocess_text()
+            .extract_citations()
+            .structure_with_llm()
+            .validate_structure()
+            .construct_graph()
+            .store_in_neo4j()
+        )
+```
+
+## Implementation Strategy
+
+### 1. Core Services
+
+#### Neo4j Integration
+```python
+# Graph Schema
+CREATE CONSTRAINT argument_unique IF NOT EXISTS
+FOR (a:Argument) REQUIRE a.id IS UNIQUE;
+
+CREATE CONSTRAINT claim_unique IF NOT EXISTS
+FOR (c:Claim) REQUIRE c.hash IS UNIQUE;
+
+// Relationship Types
+(:Claim)-[:SUPPORTED_BY]->(:Ground)
+(:Ground)-[:CONNECTED_VIA]->(:Warrant)
+(:Claim)-[:QUALIFIED_BY]->(:Qualifier)
+(:Claim)-[:REBUTTED_BY]->(:Rebuttal)
+```
+
+#### Redis Caching
+```python
+CACHE_STRATEGY = {
+    'argument_structure': {
+        'ttl': 3600,           # 1 hour
+        'invalidate_on': ['structure_update', 'citation_change']
+    },
+    'citation_data': {
+        'ttl': 86400,          # 24 hours
+        'invalidate_on': ['source_update']
+    },
+    'graph_layout': {
+        'ttl': 1800,           # 30 minutes
+        'invalidate_on': ['node_update', 'edge_update']
+    }
+}
+```
+
+### 2. Quality Metrics
+
+#### Argument Quality Score
+```python
+class QualityMetrics:
+    def calculate_score(self, argument: ToulminArgument) -> ArgumentScore:
+        return ArgumentScore(
+            structure_completeness=self._check_toulmin_completeness(),
+            citation_validity=self._verify_citations(),
+            logical_consistency=self._check_logical_flow(),
+            graph_integrity=self._validate_dag_properties()
+        )
+```
+
+#### Performance Targets
+```python
+PERFORMANCE_SLA = {
+    'argument_processing': {
+        'p95_latency': 2000,  # ms
+        'success_rate': 0.99
+    },
+    'citation_verification': {
+        'p95_latency': 1000,  # ms
+        'accuracy': 0.95
+    },
+    'graph_operations': {
+        'p95_latency': 500,   # ms
+        'consistency': 0.99
+    }
+}
+```
+
+### 3. Testing Strategy
+
+#### Unit Test Coverage
+```python
+# Key test areas
+test_argument_structure/
+    test_toulmin_validation.py
+    test_citation_verification.py
+    test_logical_consistency.py
+
+test_graph_operations/
+    test_dag_construction.py
+    test_cycle_detection.py
+    test_relationship_validation.py
+
+test_integration/
+    test_llm_processing.py
+    test_neo4j_operations.py
+    test_cache_effectiveness.py
+```
+
+### 4. Monitoring and Observability
+
+#### Key Metrics
+```python
+MONITORING_METRICS = {
+    'argument_quality': [
+        'structure_completeness_score',
+        'citation_validity_rate',
+        'logical_consistency_score'
+    ],
+    'system_performance': [
+        'llm_response_time',
+        'graph_operation_latency',
+        'cache_hit_ratio'
+    ],
+    'error_rates': [
+        'validation_failures',
+        'citation_verification_errors',
+        'graph_consistency_violations'
+    ]
+}
+```
+
+#### Health Checks
+```python
+async def health_check() -> HealthStatus:
+    return {
+        'llm_service': await check_llm_availability(),
+        'neo4j_connection': await verify_db_connection(),
+        'redis_cache': await validate_cache_state(),
+        'citation_service': await check_citation_api()
+    }
+```
+
+## Development Guidelines
+
+### 1. Code Organization
+- Follow domain-driven design principles
+- Implement clear service boundaries
+- Use dependency injection for service composition
+- Maintain comprehensive type hints
+
+### 2. Error Handling
+```python
+class ArgumentError(Exception):
+    def __init__(self, error_type: ErrorType, details: Dict):
+        self.error_type = error_type
+        self.details = details
+        super().__init__(self._format_message())
+```
+
+### 3. API Versioning
+- Use semantic versioning
+- Maintain backwards compatibility
+- Document breaking changes
+- Provide migration guides
+
+### 4. Security Considerations
+- Implement API key authentication
+- Validate all input data
+- Rate limit API endpoints
+- Sanitize graph queries
