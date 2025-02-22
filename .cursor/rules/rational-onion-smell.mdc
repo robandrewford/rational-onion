@@ -1,0 +1,39 @@
+---
+description: About the structure of this project
+globs: 
+---
+
+1.	FastAPI Application (main.py in /api/ folder)
+•	This file is the entry point for the FastAPI app. It imports:
+    •	[argument_processing.py](mdc:rational_onion/api/argument_processing.py), [argument_verification.py](mdc:rational_onion/api/argument_verification.py), etc.
+    •	[argument_improvement.py](mdc:rational_onion/api/argument_improvement.py), [external_references.py](mdc:rational_onion/api/external_references.py), [dag_visualization.py](mdc:rational_onion/api/dag_visualization.py)
+•	Contains my router setup, CORS middleware, and API init logic.
+2.	Neo4j & Redis Config ([neo4j_service.py](mdc:rational_onion/services/neo4j_service.py), [caching_service.py](mdc:rational_onion/services/caching_service.py) in /services/)
+•	[neo4j_service.py](mdc:rational_onion/services/neo4j_service.py) holds:
+    •	AsyncGraphDatabase.driver init
+    •	Functions like init_redis()
+•	[caching_service.py](mdc:rational_onion/services/caching_service.py) keeps placeholders like toggle_cache, caching_enabled variables.
+3.	Argument Logic ([argument_processing.py](mdc:rational_onion/api/argument_processing.py), [argument_verification.py](mdc:rational_onion/api/argument_verification.py), [argument_improvement.py](mdc:rational_onion/api/argument_improvement.py) in /api/)
+•	[argument_processing.py](mdc:rational_onion/api/argument_processing.py):
+    •	Insert and retrieve arguments (Toulmin model)
+    •	Batch insert, batch retrieval, etc.
+•	[argument_verification.py](mdc:rational_onion/api/argument_verification.py):
+    •	Structural checks (cycles, orphaned nodes)
+    •	Contradiction detection
+•	[argument_improvement.py](mdc:rational_onion/api/argument_improvement.py):
+    •	NLP-based suggestions
+    •	Quality scoring
+    •	Additional logic referencing the [nlp_service.py](mdc:rational_onion/services/nlp_service.py)
+4.	NLP & External References ([nlp_service.py](mdc:rational_onion/services/nlp_service.py) / [external_references.py](mdc:rational_onion/api/external_references.py) in /services/)
+•	[nlp_service.py](mdc:rational_onion/services/nlp_service.py):
+    •	spacy and sentence-transformers loaded, plus query expansion
+•	[external_references.py](mdc:rational_onion/api/external_references.py):
+    •	Scholarly source queries
+    •	Ranking logic
+5.	DAG Visualization ([dag_visualization.py](mdc:rational_onion/api/dag_visualization.py) in /api/)
+    •	The endpoint that returns nodes and edges from Neo4j.
+6.	Front-End ([ArgumentDAG.jsx](mdc:frontend/src/ArgumentDAG.jsx) in /frontend/src/)
+    •	The Cytoscape or D3.js visualization code we generated.
+    •	If using React or Next.js, we’ll place it in pages/ or components/.
+7.	Test Code (Various test_*.py in /tests/)
+    •	Contains pytest or unittest scripts to verify each module.
