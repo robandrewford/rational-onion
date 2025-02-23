@@ -347,8 +347,13 @@ class TestVerification:
             # Check that at least one response was rate limited
             assert any(r.status_code == 429 for r in responses)
             rate_limited_response = next(r for r in responses if r.status_code == 429)
-            data = rate_limited_response.json()
-            assert data["detail"]["error_type"] == "RATE_LIMIT_EXCEEDED"
+            data: Dict[str, Any] = rate_limited_response.json()
+            
+            # Explicitly check the structure of the error response
+            assert "detail" in data, "Error response is missing 'detail' key"
+            assert isinstance(data["detail"], dict), "Detail should be a dictionary"
+            assert "error_type" in data["detail"], "Detail is missing 'error_type'"
+            assert data["detail"]["error_type"] == ErrorType.RATE_LIMIT_EXCEEDED
         finally:
             limiter.enabled = False
 
