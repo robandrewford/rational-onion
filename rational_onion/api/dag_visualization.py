@@ -3,6 +3,9 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from rational_onion.services.neo4j_service import driver
+from rational_onion.api.errors import (
+    DatabaseError, ErrorType, BaseAPIError
+)
 
 router = APIRouter()
 
@@ -47,4 +50,9 @@ async def visualize_argument_dag():
             }
             return JSONResponse(content=graph)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise BaseAPIError(
+            error_type=ErrorType.DATABASE_ERROR,
+            message="Failed to generate graph visualization",
+            status_code=500,
+            details={"error": str(e)}
+        )

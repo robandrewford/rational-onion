@@ -7,9 +7,10 @@ from fastapi import FastAPI, Depends, HTTPException, Security, Request
 from fastapi.security.api_key import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+from starlette.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 
 # Local imports
 from rational_onion.services.caching_service import caching_enabled, toggle_cache
@@ -20,6 +21,7 @@ from rational_onion.api.external_references import router as external_references
 from rational_onion.api.dag_visualization import router as dag_visualization_router
 from rational_onion.config import get_settings, Settings
 from rational_onion.api.dependencies import limiter
+from rational_onion.api.errors import ErrorType, BaseAPIError
 
 # FastAPI app initialization
 settings = get_settings()
@@ -34,7 +36,65 @@ app = FastAPI(
 # Add rate limiter to app state and middleware
 app.state.limiter = limiter
 app.add_middleware(SlowAPIMiddleware)
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+@app.exception_handler(RateLimitExceeded)
+async def custom_rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    """Custom handler for rate limit exceeded errors"""
+    return JSONResponse(
+        status_code=429,
+        content={
+            "detail": {
+                "error_type": ErrorType.RATE_LIMIT_EXCEEDED.value,
+                "message": f"Rate limit exceeded: {exc.limit} per {exc.period} seconds",
+                "details": {
+                    "limit": str(exc.limit),
+                    "period": str(exc.period)
+                }
+            }
+        }
+    )
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Custom handler for validation errors"""
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": {
+                "error_type": ErrorType.VALIDATION_ERROR.value,
+                "message": "Validation error",
+                "details": {"errors": exc.errors()}
+            }
+        }
+    )
+
+@app.exception_handler(BaseAPIError)
+async def api_error_handler(request: Request, exc: BaseAPIError) -> JSONResponse:
+    """Custom handler for API errors"""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "detail": {
+                "error_type": exc.error_type.value,
+                "message": exc.detail["message"],
+                "details": exc.detail["details"]
+            }
+        }
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Custom handler for unhandled exceptions"""
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": {
+                "error_type": ErrorType.INTERNAL_ERROR.value,
+                "message": "An unexpected error occurred",
+                "details": {"error": str(exc)}
+            }
+        }
+    )
 
 # CORS Middleware for the front-end
 app.add_middleware(

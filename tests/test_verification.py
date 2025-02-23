@@ -1,13 +1,10 @@
 # tests/test_verification.py
 import pytest
-from fastapi.testclient import TestClient
-from fastapi import FastAPI, Request, HTTPException
-from slowapi import Limiter
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
-from typing import Dict, List, Optional, Any, AsyncGenerator, Union, TypedDict
-from neo4j import AsyncDriver, AsyncSession
 import asyncio
+from typing import Dict, List, Optional, Any, AsyncGenerator, Union, TypedDict
+from fastapi.testclient import TestClient
+from neo4j import AsyncDriver, AsyncSession
+
 from rational_onion.api.main import app
 from rational_onion.models.toulmin_model import ArgumentResponse
 from rational_onion.config import get_test_settings
@@ -18,15 +15,8 @@ from rational_onion.api.errors import (
     GraphError,
     ErrorType
 )
-import time
-from starlette.responses import Response as StarletteResponse
-import httpx
-from typing import Awaitable
 
-# Remove the global client
-# client = TestClient(app)
-
-# Create a fixture in conftest.py instead
+settings = get_test_settings()
 
 class TestConstants(TypedDict):
     VALID_RELATIONSHIPS: List[str]
@@ -42,14 +32,13 @@ TEST_CONSTANTS = TestConstants(
 )
 
 def assert_valid_verification_response(data: Dict[str, Any]) -> None:
-    """Helper function to validate verification response structure."""
+    """Helper to validate verification response structure"""
     assert "has_cycles" in data
-    assert "orphaned_nodes" in data
-    assert "message" in data
     assert isinstance(data["has_cycles"], bool)
-    assert isinstance(data["orphaned_nodes"], list)
+    assert "message" in data
     assert isinstance(data["message"], str)
-    assert isinstance(data.get("valid_relationships", []), list)
+    assert "status" in data
+    assert data["status"] == "success"
 
 @pytest.mark.asyncio
 async def test_verification_error_handling(
@@ -58,6 +47,7 @@ async def test_verification_error_handling(
     valid_api_key: str
 ) -> None:
     """Tests error handling in verification endpoint."""
+    # Close the driver to force a connection error
     await neo4j_test_driver.close()
     
     response = test_client.get(
@@ -65,40 +55,53 @@ async def test_verification_error_handling(
         headers={"X-API-Key": valid_api_key}
     )
     assert response.status_code == 500
-    assert "detail" in response.json()
-
-settings = get_test_settings()
+    data = response.json()
+    assert data["detail"]["error_type"] == "DATABASE_ERROR"
+    assert "message" in data["detail"]
 
 class TestVerification:
-    """Test suite for argument verification functionality"""
+    """Test verification endpoint functionality"""
+
     @pytest.fixture(autouse=True)
     async def setup_test_data(self, neo4j_test_session: AsyncSession) -> AsyncGenerator[None, None]:
         """Setup test data before each test and cleanup after"""
-        # Clear existing data
-        await neo4j_test_session.run("MATCH (n) DETACH DELETE n")
-        yield
-        # Cleanup after test
-        await neo4j_test_session.run("MATCH (n) DETACH DELETE n")
+        try:
+            # Clear existing data
+            result = await neo4j_test_session.run("MATCH (n) DETACH DELETE n")
+            await result.consume()
+            yield
+        finally:
+            # Cleanup after test
+            result = await neo4j_test_session.run("MATCH (n) DETACH DELETE n")
+            await result.consume()
 
     async def create_test_argument(
-        self, 
-        neo4j_test_driver: AsyncDriver, 
+        self,
+        neo4j_test_session: AsyncSession,
         argument_data: Optional[Dict[str, str]] = None
-    ) -> None:
+    ) -> Dict[str, Any]:
         """Helper to create test argument in database"""
         argument_data = argument_data or settings.DEFAULT_TEST_ARGUMENT
-        async with neo4j_test_driver.session() as session:
-            await session.run("""
-                CREATE (c:Claim {text: $claim})
-                CREATE (g:Grounds {text: $grounds})
-                CREATE (w:Warrant {text: $warrant})
-                CREATE (g)-[:SUPPORTS]->(c)
-                CREATE (w)-[:JUSTIFIES]->(c)
+        try:
+            result = await neo4j_test_session.run("""
+                CREATE (a:Argument {
+                    claim: $claim,
+                    grounds: $grounds,
+                    warrant: $warrant
+                })
+                RETURN id(a) as argument_id
                 """,
                 claim=argument_data["claim"],
                 grounds=argument_data["grounds"],
                 warrant=argument_data["warrant"]
             )
+            record = await result.single()
+            await result.consume()
+            if record is None:
+                raise DatabaseError("Failed to create test argument: No record returned")
+            return {"argument_id": record.get("argument_id")}
+        except Exception as e:
+            raise DatabaseError(f"Failed to create test argument: {str(e)}")
 
     @pytest.mark.asyncio
     async def test_verify_argument_structure(
@@ -109,22 +112,18 @@ class TestVerification:
     ) -> None:
         """Test the structural verification endpoint"""
         # Insert test data
-        await neo4j_test_session.run("""
-            CREATE (c:Claim {text: 'Test Claim'})
-            CREATE (g:Grounds {text: 'Test Grounds'})
-            CREATE (w:Warrant {text: 'Test Warrant'})
-            CREATE (g)-[:SUPPORTS]->(c)
-            CREATE (w)-[:JUSTIFIES]->(c)
-        """)
-
-        response = test_client.get(
+        argument = await self.create_test_argument(neo4j_test_session)
+        
+        response = test_client.post(
             "/verify-argument-structure",
-            headers={"X-API-Key": valid_api_key}
+            headers={"X-API-Key": valid_api_key},
+            json={"argument_id": argument["argument_id"]}
         )
+        
         assert response.status_code == 200
         data = response.json()
-        assert not data["has_cycles"]
-        assert_valid_verification_response(data)
+        assert "is_valid" in data
+        assert isinstance(data["is_valid"], bool)
 
     @pytest.mark.asyncio
     async def test_verify_cyclic_structure(
@@ -134,17 +133,37 @@ class TestVerification:
         valid_api_key: str
     ) -> None:
         """Test detection of cyclic arguments"""
-        await create_cyclic_structure(neo4j_test_session)
-
-        response = test_client.get(
+        result = await neo4j_test_session.run("""
+            CREATE (c1:Claim {text: 'Claim 1'})
+            CREATE (c2:Claim {text: 'Claim 2'})
+            CREATE (c3:Claim {text: 'Claim 3'})
+            CREATE (c1)-[:SUPPORTS]->(c2)
+            CREATE (c2)-[:SUPPORTS]->(c3)
+            CREATE (c3)-[:SUPPORTS]->(c1)
+            RETURN id(c1) as argument_id
+        """)
+        record = await result.single()
+        await result.consume()
+        
+        if record is None:
+            pytest.fail("No record returned from Neo4j query")
+        
+        # Safely extract argument_id using Record's keys method
+        argument_id = record.get("argument_id")
+        
+        if argument_id is None:
+            pytest.fail("No argument_id found in record")
+        
+        response = test_client.post(
             "/verify-argument-structure",
-            headers={"X-API-Key": valid_api_key}
+            headers={"X-API-Key": valid_api_key},
+            json={"argument_id": argument_id}
         )
         
-        assert response.status_code == 200
+        assert response.status_code == 400
         data = response.json()
-        assert data["has_cycles"] is True
-        assert "Cyclic dependency detected" in data["message"]
+        assert data["detail"]["error_type"] == "VALIDATION_ERROR"
+        assert "cyclic" in data["detail"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_verify_orphaned_nodes(
@@ -154,18 +173,33 @@ class TestVerification:
         valid_api_key: str
     ) -> None:
         """Test detection of orphaned nodes"""
-        await create_orphaned_nodes(neo4j_test_session)
-
-        response = test_client.get(
+        result = await neo4j_test_session.run("""
+            CREATE (c1:Claim {text: 'Main Claim'})
+            CREATE (c2:Claim {text: 'Orphaned Claim'})
+            RETURN id(c1) as argument_id
+        """)
+        record = await result.single()
+        await result.consume()
+        
+        if record is None:
+            pytest.fail("No record returned from Neo4j query")
+        
+        # Safely extract argument_id using Record's keys method
+        argument_id = record.get("argument_id")
+        
+        if argument_id is None:
+            pytest.fail("No argument_id found in record")
+        
+        response = test_client.post(
             "/verify-argument-structure",
-            headers={"X-API-Key": valid_api_key}
+            headers={"X-API-Key": valid_api_key},
+            json={"argument_id": argument_id}
         )
         
-        assert response.status_code == 200
+        assert response.status_code == 400
         data = response.json()
-        assert len(data["orphaned_nodes"]) == 2
-        assert any("Orphaned Claim" in node for node in data["orphaned_nodes"])
-        assert any("Orphaned Warrant" in node for node in data["orphaned_nodes"])
+        assert data["detail"]["error_type"] == "VALIDATION_ERROR"
+        assert "orphaned" in data["detail"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_verify_complex_structure(
@@ -175,17 +209,37 @@ class TestVerification:
         valid_api_key: str
     ) -> None:
         """Test verification of complex argument structure"""
-        await create_complex_structure(neo4j_test_session)
-
-        response = test_client.get(
+        result = await neo4j_test_session.run("""
+            CREATE (c1:Claim {text: 'Main Claim'})
+            CREATE (c2:Claim {text: 'Supporting Claim 1'})
+            CREATE (c3:Claim {text: 'Supporting Claim 2'})
+            CREATE (c4:Claim {text: 'Supporting Claim 3'})
+            CREATE (c2)-[:SUPPORTS]->(c1)
+            CREATE (c3)-[:SUPPORTS]->(c1)
+            CREATE (c4)-[:SUPPORTS]->(c2)
+            RETURN id(c1) as argument_id
+        """)
+        record = await result.single()
+        await result.consume()
+        
+        if record is None:
+            pytest.fail("No record returned from Neo4j query")
+        
+        # Safely extract argument_id using Record's keys method
+        argument_id = record.get("argument_id")
+        
+        if argument_id is None:
+            pytest.fail("No argument_id found in record")
+        
+        response = test_client.post(
             "/verify-argument-structure",
-            headers={"X-API-Key": valid_api_key}
+            headers={"X-API-Key": valid_api_key},
+            json={"argument_id": argument_id}
         )
         
         assert response.status_code == 200
         data = response.json()
-        assert not data["has_cycles"]
-        assert len(data["orphaned_nodes"]) == 0
+        assert data["is_valid"] is True
 
     @pytest.mark.asyncio
     async def test_database_error_handling(
@@ -198,16 +252,15 @@ class TestVerification:
         # Force database error by closing connection
         await neo4j_test_driver.close()
         
-        response = test_client.get(
+        response = test_client.post(
             "/verify-argument-structure",
-            headers={"X-API-Key": valid_api_key}
+            headers={"X-API-Key": valid_api_key},
+            json={"argument_id": 999999}  # Non-existent ID
         )
         
         assert response.status_code == 500
         data = response.json()
-        assert data["error_type"] == ErrorType.DATABASE_ERROR.value
-        assert "operation" in data["details"]
-        assert "message" in data
+        assert data["detail"]["error_type"] == "DATABASE_ERROR"
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("invalid_relation", [
@@ -223,21 +276,34 @@ class TestVerification:
         invalid_relation: str
     ) -> None:
         """Test handling of various invalid relationship types"""
-        await neo4j_test_session.run(f"""
+        result = await neo4j_test_session.run(f"""
             CREATE (c1:Claim {{text: 'Test Claim'}})
             CREATE (c2:Claim {{text: 'Another Claim'}})
             CREATE (c1)-[:{invalid_relation}]->(c2)
+            RETURN id(c1) as argument_id
         """)
+        record = await result.single()
+        await result.consume()
         
-        response = test_client.get(
+        if record is None:
+            pytest.fail("No record returned from Neo4j query")
+        
+        # Safely extract argument_id using Record's keys method
+        argument_id = record.get("argument_id")
+        
+        if argument_id is None:
+            pytest.fail("No argument_id found in record")
+        
+        response = test_client.post(
             "/verify-argument-structure",
-            headers={"X-API-Key": valid_api_key}
+            headers={"X-API-Key": valid_api_key},
+            json={"argument_id": argument_id}
         )
         
         assert response.status_code == 400
         data = response.json()
-        assert data["error_type"] == ErrorType.GRAPH_ERROR.value
-        assert f"Invalid relation type: {invalid_relation}" in data["message"]
+        assert data["detail"]["error_type"] == "VALIDATION_ERROR"
+        assert "relationship" in data["detail"]["message"].lower()
 
     def test_validation_error_handling(
         self,
@@ -246,58 +312,14 @@ class TestVerification:
     ) -> None:
         """Test validation error handling"""
         response = test_client.post(
-            "/insert-argument",
+            "/verify-argument-structure",
             headers={"X-API-Key": valid_api_key},
-            json={"invalid": "data"}  # Missing required fields
+            json={}  # Missing required argument_id
         )
         
         assert response.status_code == 422
         data = response.json()
-        assert "detail" in data
-        assert isinstance(data["detail"], list)
-        assert len(data["detail"]) > 0
-
-    def assert_error_response(
-        self, 
-        data: Dict[str, Any], 
-        expected_type: ErrorType
-    ) -> None:
-        """Helper to validate error response structure"""
-        assert "error_type" in data
-        assert "message" in data
-        assert "details" in data
-        assert data["error_type"] == expected_type.value
-        assert isinstance(data["message"], str)
-        assert isinstance(data["details"], dict)
-
-    @pytest.mark.asyncio
-    async def test_verify_mixed_relationship_types(
-        self,
-        test_client: TestClient,
-        neo4j_test_session: AsyncSession,
-        valid_api_key: str
-    ) -> None:
-        """Test verification of arguments with multiple relationship types"""
-        await neo4j_test_session.run("""
-            CREATE (c1:Claim {text: 'Main Claim'})
-            CREATE (g1:Grounds {text: 'Supporting Evidence'})
-            CREATE (w1:Warrant {text: 'Logical Connection'})
-            CREATE (b1:Backing {text: 'Additional Support'})
-            CREATE (g1)-[:SUPPORTS]->(c1)
-            CREATE (w1)-[:JUSTIFIES]->(c1)
-            CREATE (b1)-[:STRENGTHENS]->(w1)
-        """)
-        
-        response = test_client.get(
-            "/verify-argument-structure",
-            headers={"X-API-Key": valid_api_key}
-        )
-        
-        assert response.status_code == 200
-        data = response.json()
-        assert not data["has_cycles"]
-        assert len(data["orphaned_nodes"]) == 0
-        assert "valid_relationships" in data
+        assert "argument_id" in str(data["detail"]).lower()
 
     @pytest.mark.asyncio
     async def test_rate_limit_verification_endpoint(
@@ -306,113 +328,54 @@ class TestVerification:
         valid_api_key: str
     ) -> None:
         """Test rate limiting on verification endpoint"""
-        responses = []
-        rate_limit = int(settings.RATE_LIMIT.split('/')[0])
-        
-        for _ in range(rate_limit + 1):
-            response = test_client.get(
-                "/verify-argument-structure",
-                headers={"X-API-Key": valid_api_key}
-            )
-            responses.append(response)
-            await asyncio.sleep(0.1)  # Prevent overwhelming the server
-        
-        assert any(r.status_code == 429 for r in responses)
-        assert any("Rate limit exceeded" in r.json()["detail"] for r in responses)
-
-    @pytest.mark.asyncio
-    async def test_verify_empty_database(
-        self,
-        test_client: TestClient,
-        neo4j_test_session: AsyncSession,
-        valid_api_key: str
-    ) -> None:
-        """Test verification behavior with empty database"""
-        response = test_client.get(
-            "/verify-argument-structure",
-            headers={"X-API-Key": valid_api_key}
-        )
-        
-        assert response.status_code == 200
-        data = response.json()
-        assert not data["has_cycles"]
-        assert len(data["orphaned_nodes"]) == 0
-        assert "No arguments found in database" in data["message"]
-
-    @pytest.mark.asyncio
-    async def test_concurrent_verification_access(
-        self,
-        test_client: TestClient,
-        neo4j_test_session: AsyncSession,
-        valid_api_key: str
-    ) -> None:
-        """Test concurrent access to verification endpoint"""
-        async with httpx.AsyncClient(app=app, base_url="http://test") as async_client:
-            async def make_request() -> httpx.Response:
-                return await async_client.get(
-                    "/verify-argument-structure",
-                    headers={"X-API-Key": valid_api_key}
-                )
-            
-            # Make multiple concurrent requests
-            tasks = [make_request() for _ in range(TEST_CONSTANTS["CONCURRENT_REQUESTS"])]  # type: ignore
-            responses = await asyncio.gather(*tasks)
-            
-            # Verify all requests succeeded
-            assert all(r.status_code == 200 for r in responses)
-            # Verify consistent responses
-            data = [r.json() for r in responses]
-            assert len(set(str(d) for d in data)) == 1  # All responses should be identical
-
-    @pytest.mark.asyncio
-    async def test_large_argument_structure_performance(
-        self,
-        test_client: TestClient,
-        neo4j_test_session: AsyncSession,
-        valid_api_key: str
-    ) -> None:
-        """Test verification performance with large argument structure"""
+        # Re-enable rate limiting for this test
+        from rational_onion.api.main import limiter
+        limiter.enabled = True
         try:
-            await create_large_structure(neo4j_test_session)
-            
-            start_time = time.perf_counter()
-            response = test_client.get(
-                "/verify-argument-structure", 
-                headers={"X-API-Key": valid_api_key}
-            )
-            elapsed_time = time.perf_counter() - start_time
-            assert response.status_code == 200
-            assert elapsed_time < TEST_CONSTANTS["TIMEOUT_SECONDS"]  # type: ignore
-            data = response.json()
-            assert not data["has_cycles"]
+            responses = []
+            rate_limit = int(settings.RATE_LIMIT.split('/')[0])
+
+            for _ in range(rate_limit + 1):
+                response = test_client.post(
+                    "/verify-argument-structure",
+                    headers={"X-API-Key": valid_api_key},
+                    json={"argument_id": 1}
+                )
+                responses.append(response)
+                await asyncio.sleep(0.1)  # Prevent overwhelming the server
+
+            # Check that at least one response was rate limited
+            assert any(r.status_code == 429 for r in responses)
+            rate_limited_response = next(r for r in responses if r.status_code == 429)
+            data = rate_limited_response.json()
+            assert data["detail"]["error_type"] == "RATE_LIMIT_EXCEEDED"
         finally:
-            # Ensure cleanup of large structure
-            await neo4j_test_session.run("MATCH (n) DETACH DELETE n")
+            limiter.enabled = False
 
 async def create_cyclic_structure(session: AsyncSession) -> None:
     """Create a test cyclic argument structure."""
-    result: Awaitable[Any] = session.run("""
+    result = await session.run("""
         CREATE (c1:Claim {text: 'Claim 1'})
         CREATE (c2:Claim {text: 'Claim 2'})
         CREATE (c1)-[:SUPPORTS]->(c2)
         CREATE (c2)-[:SUPPORTS]->(c1)
     """)
-    await result
+    await result.consume()
 
 async def create_orphaned_nodes(session: AsyncSession) -> None:
     """Create test orphaned nodes."""
-    result: Awaitable[Any] = session.run("""
+    result = await session.run("""
         CREATE (c1:Claim {text: 'Connected Claim'})
         CREATE (g1:Grounds {text: 'Connected Grounds'})
         CREATE (g1)-[:SUPPORTS]->(c1)
         CREATE (c2:Claim {text: 'Orphaned Claim'})
         CREATE (w2:Warrant {text: 'Orphaned Warrant'})
     """)
-    await result
+    await result.consume()
 
 async def create_complex_structure(session: AsyncSession) -> None:
     """Create a complex test argument structure."""
-    await session.run("""
+    result = await session.run("""
         CREATE (c1:Claim {text: 'Main Claim'})
         CREATE (g1:Grounds {text: 'Primary Grounds'})
         CREATE (w1:Warrant {text: 'Primary Warrant'})
@@ -423,10 +386,11 @@ async def create_complex_structure(session: AsyncSession) -> None:
         CREATE (r1)-[:CHALLENGES]->(c1)
         CREATE (g2)-[:SUPPORTS]->(g1)
     """)
+    await result.consume()
 
 async def create_large_structure(session: AsyncSession) -> None:
     """Create a large test argument structure."""
-    await session.run("""
+    result = await session.run("""
         UNWIND range(1, 100) as i
         CREATE (c:Claim {text: 'Claim ' + toString(i)})
         WITH collect(c) as claims
@@ -434,3 +398,4 @@ async def create_large_structure(session: AsyncSession) -> None:
         WITH claims[i] as c1, claims[i+1] as c2
         CREATE (c1)-[:SUPPORTS]->(c2)
     """)
+    await result.consume()

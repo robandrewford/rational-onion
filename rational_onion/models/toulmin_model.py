@@ -11,6 +11,7 @@ class ArgumentRequest(BaseModel):
     grounds: constr(min_length=1, max_length=settings.MAX_GROUNDS_LENGTH)
     warrant: constr(min_length=1, max_length=settings.MAX_WARRANT_LENGTH)
     rebuttal: Optional[str] = None
+    argument_id: Optional[int] = None
 
 class ArgumentResponse(BaseModel):
     claim: str

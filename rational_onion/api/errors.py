@@ -9,6 +9,8 @@ class ErrorType(str, Enum):
     GRAPH_ERROR = "GRAPH_ERROR"
     ARGUMENT_ERROR = "ARGUMENT_ERROR"
     CITATION_ERROR = "CITATION_ERROR"
+    INTERNAL_ERROR = "INTERNAL_ERROR"
+    RATE_LIMIT_EXCEEDED = "RATE_LIMIT_EXCEEDED"
 
 class BaseError(Exception):
     """Base error class for custom exceptions"""

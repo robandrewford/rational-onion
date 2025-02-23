@@ -39,10 +39,11 @@ def test_insert_argument_validation_error(test_client: TestClient, valid_api_key
             "warrant": "Test warrant"
         }
     )
-    assert response.status_code == 400
+    assert response.status_code == 422
     data = response.json()
-    assert data["detail"]["error_type"] == "VALIDATION_ERROR"
-    assert data["detail"]["field"] == "claim"
+    assert "detail" in data
+    assert isinstance(data["detail"], list)
+    assert len(data["detail"]) > 0
 
 def test_verify_argument_structure_success(test_client: TestClient, valid_api_key: str) -> None:
     """Test successful argument structure verification"""

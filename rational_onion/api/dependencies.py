@@ -3,47 +3,69 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from neo4j import AsyncGraphDatabase, AsyncDriver, AsyncSession
-from typing import AsyncGenerator
+from neo4j.exceptions import ServiceUnavailable, DatabaseError as Neo4jDatabaseError
+from typing import AsyncGenerator, AsyncIterator
 from rational_onion.config import get_settings
+from rational_onion.api.errors import ErrorType, BaseAPIError, DatabaseError
 
 settings = get_settings()
 
 # Initialize rate limiter with default in-memory storage
 limiter = Limiter(key_func=get_remote_address)
 
-def handle_rate_limit_exceeded(request: Request, exc: RateLimitExceeded) -> HTTPException:
-    """Handler for rate limit exceeded errors"""
-    return HTTPException(
-        status_code=429,
-        detail={
-            "error_type": "RATE_LIMIT_EXCEEDED",
-            "message": "Rate limit exceeded",
-            "details": {
-                "limit": str(exc.limit),
-                "reset_at": str(exc.reset_at)
-            }
-        }
-    )
-
-async def get_db_driver() -> AsyncGenerator[AsyncDriver, None]:
+async def get_db_driver() -> AsyncIterator[AsyncDriver]:
     """Get Neo4j database driver"""
-    driver = AsyncGraphDatabase.driver(
-        settings.NEO4J_URI,
-        auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD),
-        database=settings.NEO4J_DATABASE,
-        max_connection_pool_size=settings.NEO4J_MAX_CONNECTION_POOL_SIZE,
-        connection_timeout=settings.NEO4J_CONNECTION_TIMEOUT,
-        encrypted=settings.NEO4J_ENCRYPTION_ENABLED
-    )
     try:
-        yield driver
-    finally:
-        await driver.close()
-
-async def get_db(driver: AsyncDriver = Depends(get_db_driver)) -> AsyncGenerator[AsyncSession, None]:
-    """Get Neo4j database session"""
-    async with driver.session() as session:
+        driver = AsyncGraphDatabase.driver(
+            settings.NEO4J_URI,
+            auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD),
+            database=settings.NEO4J_DATABASE,
+            max_connection_pool_size=settings.NEO4J_MAX_CONNECTION_POOL_SIZE,
+            connection_timeout=settings.NEO4J_CONNECTION_TIMEOUT,
+            encrypted=settings.NEO4J_ENCRYPTION_ENABLED
+        )
+        # Verify connection
         try:
-            yield session
-        finally:
-            await session.close() 
+            await driver.verify_connectivity()
+        except Exception as e:
+            raise BaseAPIError(
+                error_type=ErrorType.DATABASE_ERROR,
+                message="Failed to connect to database",
+                status_code=500,
+                details={"error": str(e)}
+            )
+        yield driver
+    except Exception as e:
+        raise BaseAPIError(
+            error_type=ErrorType.DATABASE_ERROR,
+            message="Failed to create database driver",
+            status_code=500,
+            details={"error": str(e)}
+        )
+    finally:
+        if 'driver' in locals():
+            await driver.close()
+
+async def get_db(driver: AsyncDriver = Depends(get_db_driver)) -> AsyncIterator[AsyncSession]:
+    """Get Neo4j database session"""
+    try:
+        async with driver.session() as session:
+            try:
+                # Test query to verify session
+                result = await session.run("RETURN 1 as test")
+                await result.consume()
+                yield session
+            except (ServiceUnavailable, Neo4jDatabaseError) as e:
+                raise BaseAPIError(
+                    error_type=ErrorType.DATABASE_ERROR,
+                    message="Database session error",
+                    status_code=500,
+                    details={"error": str(e)}
+                )
+    except Exception as e:
+        raise BaseAPIError(
+            error_type=ErrorType.DATABASE_ERROR,
+            message="Failed to create database session",
+            status_code=500,
+            details={"error": str(e)}
+        ) 

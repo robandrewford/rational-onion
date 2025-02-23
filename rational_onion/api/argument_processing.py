@@ -5,9 +5,13 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from rational_onion.services.neo4j_service import driver
 from rational_onion.models.toulmin_model import ArgumentRequest, ArgumentResponse
 from rational_onion.config import get_settings
-from rational_onion.api.errors import ValidationError, ArgumentError, DatabaseError
+from rational_onion.api.errors import (
+    ValidationError, ArgumentError, DatabaseError, 
+    ErrorType, BaseAPIError
+)
 from rational_onion.api.dependencies import limiter, get_db
 from neo4j import AsyncSession
+from neo4j.exceptions import ServiceUnavailable, DatabaseError as Neo4jDatabaseError
 
 router = APIRouter()
 
@@ -53,47 +57,47 @@ async def insert_argument(
         })
         RETURN id(a) as argument_id
         """
-        result = await session.run(
-            query,
-            {
-                "claim": argument.claim,
-                "grounds": argument.grounds,
-                "warrant": argument.warrant
-            }
-        )
-        record = await result.single()
-        
-        if not record:
-            raise DatabaseError("Failed to create argument")
+        try:
+            result = await session.run(
+                query,
+                {
+                    "claim": argument.claim,
+                    "grounds": argument.grounds,
+                    "warrant": argument.warrant
+                }
+            )
+            record = await result.single()
+            
+            if not record:
+                raise DatabaseError("Failed to create argument")
 
-        return {
-            "status": "success",
-            "message": "Argument inserted successfully",
-            "argument_id": record["argument_id"]
-        }
+            return {
+                "status": "success",
+                "message": "Argument inserted successfully",
+                "argument_id": record["argument_id"]
+            }
+
+        except (ServiceUnavailable, Neo4jDatabaseError) as e:
+            raise DatabaseError(str(e))
 
     except ValidationError as e:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error_type": "VALIDATION_ERROR",
-                "message": str(e),
-                "field": getattr(e, "field", None)
-            }
+        raise BaseAPIError(
+            error_type=ErrorType.VALIDATION_ERROR,
+            message=str(e),
+            status_code=422,
+            details={"field": e.field}
         )
     except DatabaseError as e:
-        raise HTTPException(
+        raise BaseAPIError(
+            error_type=ErrorType.DATABASE_ERROR,
+            message=str(e),
             status_code=500,
-            detail={
-                "error_type": "DATABASE_ERROR",
-                "message": str(e)
-            }
+            details={"error": str(e)}
         )
     except Exception as e:
-        raise HTTPException(
+        raise BaseAPIError(
+            error_type=ErrorType.INTERNAL_ERROR,
+            message="An unexpected error occurred",
             status_code=500,
-            detail={
-                "error_type": "INTERNAL_ERROR",
-                "message": "An unexpected error occurred"
-            }
+            details={"error": str(e)}
         )
