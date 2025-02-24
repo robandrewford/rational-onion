@@ -21,7 +21,7 @@ from rational_onion.api.external_references import router as external_references
 from rational_onion.api.dag_visualization import router as dag_visualization_router
 from rational_onion.config import get_settings, Settings
 from rational_onion.api.dependencies import limiter
-from rational_onion.api.errors import ErrorType, BaseAPIError
+from rational_onion.api.errors import ErrorType, BaseAPIError, DatabaseError
 from rational_onion.api.rate_limiting import rate_limit_exceeded_handler
 
 # FastAPI app initialization
@@ -63,6 +63,29 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
                 "error_type": ErrorType.VALIDATION_ERROR.value,
                 "message": "Validation error",
                 "errors": exc.errors()
+            }
+        }
+    )
+
+# Register database error handler
+@app.exception_handler(BaseAPIError)
+async def api_error_handler(request: Request, exc: BaseAPIError) -> JSONResponse:
+    """Handle API errors and return a consistent error format."""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail}
+    )
+
+# Register database error handler
+@app.exception_handler(DatabaseError)
+async def database_error_handler(request: Request, exc: DatabaseError) -> JSONResponse:
+    """Handle database errors and return a consistent error format."""
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": {
+                "error_type": ErrorType.DATABASE_ERROR.value,
+                "message": str(exc)
             }
         }
     )

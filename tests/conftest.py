@@ -39,6 +39,30 @@ def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
     loop.close()
 
 @pytest_asyncio.fixture(scope="function")
+async def neo4j_test_driver() -> AsyncGenerator[AsyncDriver, None]:
+    """Create a test Neo4j driver."""
+    driver = AsyncGraphDatabase.driver(
+        settings.NEO4J_URI,  # Use URI from settings
+        auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD),
+        max_connection_lifetime=60,
+        max_connection_pool_size=1,
+        connection_timeout=5,
+        encrypted=False
+    )
+    
+    try:
+        await driver.verify_connectivity()
+        # Clean the database
+        async with driver.session(database=settings.NEO4J_DATABASE) as session:
+            await session.run("MATCH (n) DETACH DELETE n")
+        yield driver
+    except Exception as e:
+        log.error(f"Failed to establish Neo4j connection: {e}")
+        raise
+    finally:
+        await driver.close()
+
+@pytest_asyncio.fixture(scope="function")
 async def neo4j_test_session() -> AsyncGenerator[AsyncSession, None]:
     """Create a test Neo4j session."""
     driver = AsyncGraphDatabase.driver(

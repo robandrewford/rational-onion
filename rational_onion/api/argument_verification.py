@@ -239,8 +239,9 @@ async def verify_argument_structure(
             # Verify relationship validity first
             try:
                 query = """
-                MATCH (n:Argument)-[r]->(m)
-                WHERE elementId(n) = $argument_id
+                MATCH (n)-[r]->(m)
+                WHERE (n:Argument OR n:Claim)
+                AND elementId(n) = $argument_id
                 AND NOT type(r) IN ['SUPPORTS', 'JUSTIFIES']
                 WITH type(r) as invalid_type
                 RETURN collect(invalid_type) as invalid_types
@@ -271,13 +272,15 @@ async def verify_argument_structure(
             # Check for orphaned nodes last
             try:
                 query = """
-                MATCH (n:Argument)
-                WHERE elementId(n) = $argument_id
+                MATCH (n)
+                WHERE (n:Argument OR n:Claim)
+                AND elementId(n) = $argument_id
                 AND NOT EXISTS((n)-[:SUPPORTS|JUSTIFIES]-())
                 AND NOT EXISTS(()-[:SUPPORTS|JUSTIFIES]->(n))
                 AND EXISTS {
-                    MATCH (other:Argument)
-                    WHERE elementId(other) <> $argument_id
+                    MATCH (other)
+                    WHERE (other:Argument OR other:Claim)
+                    AND elementId(other) <> $argument_id
                     RETURN other
                 }
                 RETURN n
