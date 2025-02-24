@@ -324,7 +324,7 @@ async def verify_argument_structure(
             status_code=500,
             content={
                 "detail": {
-                    "error_type": ErrorType.UNKNOWN_ERROR.value,
+                    "error_type": ErrorType.INTERNAL_ERROR.value,
                     "message": "An unexpected error occurred"
                 }
             }

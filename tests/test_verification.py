@@ -4,6 +4,9 @@ import asyncio
 from typing import Dict, List, Optional, Any, AsyncGenerator, Union, TypedDict
 from fastapi.testclient import TestClient
 from neo4j import AsyncDriver, AsyncSession
+from unittest.mock import patch, AsyncMock, MagicMock
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from rational_onion.api.main import app
 from rational_onion.models.toulmin_model import ArgumentResponse
@@ -16,7 +19,7 @@ from rational_onion.api.errors import (
     ErrorType,
     BaseAPIError
 )
-from rational_onion.api.dependencies import limiter
+from rational_onion.api.dependencies import limiter, get_db
 
 settings = get_test_settings()
 
@@ -46,22 +49,28 @@ def assert_valid_verification_response(data: Dict[str, Any]) -> None:
 @pytest.mark.asyncio
 async def test_verification_error_handling(
     test_client: TestClient,
-    neo4j_test_driver: AsyncDriver,
     valid_api_key: str
 ) -> None:
-    """Tests error handling in verification endpoint."""
-    # Close the driver to force a connection error
-    await neo4j_test_driver.close()
+    """Test error handling in the verification endpoint"""
     
-    response = test_client.post(
-        "/verify-argument-structure",
-        headers={"X-API-Key": valid_api_key},
-        json={"argument_id": 999999}
-    )
-    assert response.status_code == 500
-    data = response.json()
-    assert data["detail"]["error_type"] == "DATABASE_ERROR"
-    assert "message" in data["detail"]
+    # Create a mock session.run method that raises a DatabaseError
+    async def mock_session_run(*args, **kwargs):
+        raise Neo4jDatabaseError("Database connection error")
+    
+    # Apply the patch to the session.run method
+    with patch("neo4j.AsyncSession.run", side_effect=mock_session_run):
+        response = test_client.post(
+            "/verify-argument-structure",
+            json={"argument_id": "999999"},
+            headers={"X-API-Key": valid_api_key}
+        )
+        
+        assert response.status_code == 500
+        data = response.json()
+        assert "detail" in data
+        assert "error_type" in data["detail"]
+        assert data["detail"]["error_type"] == ErrorType.DATABASE_ERROR.value
+        assert "message" in data["detail"]
 
 class TestVerification:
     """Test verification endpoint functionality"""
@@ -250,18 +259,25 @@ class TestVerification:
         valid_api_key: str
     ) -> None:
         """Test database error handling"""
-        # Force database error by closing connection
-        await neo4j_test_driver.close()
         
-        response = test_client.post(
-            "/verify-argument-structure",
-            headers={"X-API-Key": valid_api_key},
-            json={"argument_id": 999999}  # Non-existent ID
-        )
+        # Create a mock session.run method that raises a DatabaseError
+        async def mock_session_run(*args, **kwargs):
+            raise Neo4jDatabaseError("Database connection error")
         
-        assert response.status_code == 500
-        data = response.json()
-        assert data["detail"]["error_type"] == "DATABASE_ERROR"
+        # Apply the patch to the session.run method
+        with patch("neo4j.AsyncSession.run", side_effect=mock_session_run):
+            response = test_client.post(
+                "/verify-argument-structure",
+                json={"argument_id": "999999"},
+                headers={"X-API-Key": valid_api_key}
+            )
+            
+            assert response.status_code == 500
+            data = response.json()
+            assert "detail" in data
+            assert "error_type" in data["detail"]
+            assert data["detail"]["error_type"] == ErrorType.DATABASE_ERROR.value
+            assert "message" in data["detail"]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("invalid_relation", [
