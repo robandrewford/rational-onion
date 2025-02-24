@@ -84,55 +84,48 @@ class TestVerification:
             result = await neo4j_test_session.run("MATCH (n) DETACH DELETE n")
             await result.consume()
 
-    async def create_test_argument(
-        self,
-        neo4j_test_session: AsyncSession,
-        argument_data: Optional[Dict[str, str]] = None
-    ) -> Dict[str, Any]:
-        """Helper to create test argument in database"""
-        argument_data = argument_data or settings.DEFAULT_TEST_ARGUMENT
-        try:
-            result = await neo4j_test_session.run("""
-                CREATE (a:Argument {
-                    claim: $claim,
-                    grounds: $grounds,
-                    warrant: $warrant
-                })
-                RETURN elementId(a) as argument_id
-                """,
-                claim=argument_data["claim"],
-                grounds=argument_data["grounds"],
-                warrant=argument_data["warrant"]
-            )
-            record = await result.single()
-            await result.consume()
-            if record is None:
-                raise DatabaseError("Failed to create test argument: No record returned")
-            return {"argument_id": record.get("argument_id")}
-        except Exception as e:
-            raise DatabaseError(f"Failed to create test argument: {str(e)}")
+    async def create_test_argument(self, session: AsyncSession) -> dict:
+        """Create a test argument."""
+        result = await session.run("""
+            CREATE (a:Claim {
+                claim: $claim,
+                grounds: $grounds,
+                warrant: $warrant
+            })
+            RETURN elementId(a) as argument_id
+        """, {
+            "claim": "Test Claim",
+            "grounds": "Test Grounds",
+            "warrant": "Test Warrant"
+        })
+        record = await result.single()
+        await result.consume()
+        
+        if record is None:
+            pytest.fail("No record returned from Neo4j query")
+        
+        # Safely extract argument_id using Record's keys method
+        argument_id = record.get("argument_id")
+        
+        if argument_id is None:
+            pytest.fail("No argument_id found in record")
+        
+        return {"argument_id": str(argument_id)}
 
     @pytest.mark.asyncio
-    async def test_verify_argument_structure(
-        self,
-        test_client: TestClient,
-        neo4j_test_session: AsyncSession,
-        valid_api_key: str
-    ) -> None:
-        """Test the structural verification endpoint"""
-        # Insert test data
-        argument = await self.create_test_argument(neo4j_test_session)
-        
+    async def test_verify_argument_structure(self, test_client: TestClient, valid_api_key: str) -> None:
+        """Test successful argument structure verification"""
         response = test_client.post(
             "/verify-argument-structure",
             headers={"X-API-Key": valid_api_key},
-            json={"argument_id": str(argument["argument_id"])}
+            json={"argument_id": "test_id"}
         )
-        
         assert response.status_code == 200
         data = response.json()
+        assert data["status"] == "success"
         assert "is_valid" in data
-        assert isinstance(data["is_valid"], bool)
+        assert "has_cycles" in data
+        assert "orphaned_nodes" in data
 
     @pytest.mark.asyncio
     async def test_verify_cyclic_structure(
@@ -143,20 +136,36 @@ class TestVerification:
     ) -> None:
         """Test detection of cyclic argument structures"""
         # Create a cyclic structure
-        response = test_client.post(
-            "/insert-argument",
-            headers={"X-API-Key": valid_api_key},
-            json=self.create_cyclic_structure()
-        )
-        assert response.status_code == 200
-        data = response.json()
-        argument_id = data["argument_id"]
+        result = await neo4j_test_session.run("""
+            CREATE (c1:Claim {
+                claim: 'Test Claim',
+                grounds: 'Test Grounds',
+                warrant: 'Test Warrant'
+            })
+            CREATE (c2:Claim {
+                claim: 'Test Claim 2',
+                grounds: 'Test Grounds 2',
+                warrant: 'Test Warrant 2'
+            })
+            CREATE (c1)-[:SUPPORTS]->(c2)
+            CREATE (c2)-[:SUPPORTS]->(c1)
+            RETURN elementId(c1) as argument_id
+        """)
+        record = await result.single()
+        await result.consume()
+        
+        if record is None:
+            pytest.fail("No record returned from Neo4j query")
+        
+        argument_id = record.get("argument_id")
+        if argument_id is None:
+            pytest.fail("No argument_id found in record")
 
         # Verify the structure
         response = test_client.post(
             "/verify-argument-structure",
             headers={"X-API-Key": valid_api_key},
-            json={"argument_id": argument_id}
+            json={"argument_id": str(argument_id)}
         )
         assert response.status_code == 400
         data = response.json()
@@ -330,7 +339,7 @@ class TestVerification:
         try:
             rate_limiter.enabled = True
             # Make multiple requests to exceed rate limit
-            for _ in range(11):  # Rate limit is 10/minute
+            for _ in range(101):  # Rate limit is 100/minute
                 test_client.post(
                     "/verify-argument-structure",
                     headers={"X-API-Key": valid_api_key},

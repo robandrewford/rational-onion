@@ -36,7 +36,7 @@ def validate_argument_length(argument: ArgumentRequest) -> None:
         )
 
 @router.post("/insert-argument", response_model=ArgumentResponse)
-@limiter.limit("10/minute")
+@limiter.limit("100/minute")
 async def insert_argument(
     request: Request,
     argument: ArgumentRequest,

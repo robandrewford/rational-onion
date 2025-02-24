@@ -35,4 +35,14 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         # Re-raise other exceptions
         raise e
     finally:
-        await driver.close() 
+        await driver.close()
+
+async def verify_api_key(request: Request) -> str:
+    """Verify that the provided API key is valid"""
+    api_key = request.headers.get("X-API-Key")
+    if not api_key or api_key not in settings.VALID_API_KEYS:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid API key"
+        )
+    return api_key 

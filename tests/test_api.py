@@ -69,7 +69,7 @@ def test_verify_argument_structure_success(test_client: TestClient, valid_api_ke
 def test_rate_limit_exceeded(test_client: TestClient, valid_api_key: str) -> None:
     """Test rate limiting"""
     # Make multiple requests to exceed rate limit
-    for _ in range(11):  # Rate limit is 10/minute
+    for _ in range(101):  # Rate limit is 100/minute
         test_client.post(
             "/insert-argument",
             headers={"X-API-Key": valid_api_key},
@@ -80,7 +80,7 @@ def test_rate_limit_exceeded(test_client: TestClient, valid_api_key: str) -> Non
             }
         )
     
-    # The 11th request should fail
+    # The 101st request should fail
     response = test_client.post(
         "/insert-argument",
         headers={"X-API-Key": valid_api_key},

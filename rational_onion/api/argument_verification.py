@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from neo4j import AsyncSession
 from neo4j.exceptions import ServiceUnavailable, DatabaseError as Neo4jDatabaseError
-from rational_onion.api.dependencies import limiter, get_db
+from rational_onion.api.dependencies import limiter, get_db, verify_api_key
 from rational_onion.models.toulmin_model import ArgumentRequest
 from rational_onion.api.errors import (
     GraphError, DatabaseError, ValidationError, ErrorType, 
@@ -29,12 +29,13 @@ class VerificationResponse(BaseModel):
 
 @router.get("/verify-argument-structure", response_model=VerificationResponse)
 @router.post("/verify-argument-structure", response_model=VerificationResponse)
-@limiter.limit("10/minute")
+@limiter.limit("100/minute")
 async def verify_argument_structure(
     request: Request,
     argument: Optional[VerificationRequest] = None,
     session: AsyncSession = Depends(get_db),
-) -> Dict[str, Any]:
+    api_key: str = Depends(verify_api_key)
+) -> VerificationResponse:
     """Verify the logical structure and consistency of stored arguments"""
     try:
         # For POST requests, argument is required
@@ -120,13 +121,13 @@ async def verify_argument_structure(
                         }
                     )
                 
-                return {
-                    "status": "success",
-                    "message": "Graph structure verified successfully",
-                    "is_valid": True,
-                    "has_cycles": False,
-                    "orphaned_nodes": []
-                }
+                return VerificationResponse(
+                    status="success",
+                    message="Graph structure verified successfully",
+                    is_valid=True,
+                    has_cycles=False,
+                    orphaned_nodes=[]
+                )
             except (ServiceUnavailable, Neo4jDatabaseError) as e:
                 raise HTTPException(
                     status_code=500,
@@ -266,13 +267,13 @@ async def verify_argument_structure(
                     }
                 )
 
-            return {
-                "status": "success",
-                "message": "Argument structure verified successfully",
-                "is_valid": True,
-                "has_cycles": False,
-                "orphaned_nodes": []
-            }
+            return VerificationResponse(
+                status="success",
+                message="Argument structure verified successfully",
+                is_valid=True,
+                has_cycles=False,
+                orphaned_nodes=[]
+            )
 
     except ValidationError as e:
         if "argument_id" in str(e):  # Argument not found or invalid ID

@@ -9,8 +9,8 @@ def test_settings_values() -> None:
     assert settings.NEO4J_PASSWORD == "password"
     assert settings.REDIS_HOST == "localhost"
     assert settings.REDIS_PORT == 6379
-    assert settings.TEST_API_KEY == "test-key"
-    assert settings.RATE_LIMIT == "10/minute"
+    assert settings.VALID_API_KEYS == ["test_api_key_123"]
+    assert settings.RATE_LIMIT == "100/minute"
     
     # Test data configurations
     assert isinstance(settings.DEFAULT_TEST_ARGUMENT, dict)

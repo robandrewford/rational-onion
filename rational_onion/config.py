@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     # Security Settings
     API_KEY_NAME: str = "X-API-Key"
     VALID_API_KEYS: List[str] = ["test_api_key_123"]
-    RATE_LIMIT: str = "10/minute"
+    RATE_LIMIT: str = "100/minute"
     
     # Argument Settings
     MAX_CLAIM_LENGTH: int = 500
@@ -71,10 +71,10 @@ class TestSettings(Settings):
     SPACY_MODEL: str = "en_core_web_sm"  # Smaller Spacy model for tests
     SENTENCE_TRANSFORMER_MODEL: str = "all-MiniLM-L6-v2"  # Same transformer model for tests
     
-    RATE_LIMIT: str = "10/minute"  # Lower rate limit for tests
+    RATE_LIMIT: str = "100/minute"
     
     # API Key for testing
-    TEST_API_KEY: str = "test-key"
+    VALID_API_KEYS: List[str] = ["test_api_key_123"]
     
     # Test Data
     DEFAULT_TEST_ARGUMENT: Dict[str, str] = {

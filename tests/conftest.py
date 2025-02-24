@@ -6,7 +6,7 @@ from neo4j import AsyncGraphDatabase, AsyncDriver, AsyncSession
 from redis import Redis
 import pytest
 import pytest_asyncio
-from rational_onion.config import TestSettings, get_test_settings
+from rational_onion.config import TestSettings, get_test_settings, get_settings
 from fastapi.testclient import TestClient
 import os
 from neo4j.addressing import Address  # Use public API
@@ -111,11 +111,27 @@ def disable_rate_limit() -> Generator[None, None, None]:
 @pytest.fixture(scope="session")
 def valid_api_key() -> str:
     """Provide a valid API key for testing."""
-    return settings.TEST_API_KEY
+    return settings.VALID_API_KEYS[0]
 
 @pytest.fixture(scope="session")
 def test_client() -> TestClient:
     """Create a test client for the FastAPI application."""
+    # Override app settings with test settings
+    app.dependency_overrides = {}  # Clear any existing overrides
+    test_settings = get_test_settings()
+    
+    # Override the settings getter
+    def get_test_settings_override():
+        return test_settings
+    
+    app.dependency_overrides[get_settings] = get_test_settings_override
+    app.state.settings = test_settings
+    
+    # Ensure rate limit is set correctly
+    from rational_onion.api.rate_limiting import limiter
+    limiter.rate = test_settings.RATE_LIMIT
+    app.state.limiter = limiter
+    
     return TestClient(app)
 
 @pytest.fixture(scope="session", autouse=True)
@@ -125,9 +141,12 @@ def configure_test_env() -> None:
     app.state.limiter.enabled = False
     
     # Ensure test database is used
-    settings = get_test_settings()
-    os.environ["NEO4J_DATABASE"] = settings.NEO4J_DATABASE
-    os.environ["REDIS_DB"] = str(settings.REDIS_DB)
+    test_settings = get_test_settings()
+    os.environ["NEO4J_DATABASE"] = test_settings.NEO4J_DATABASE
+    os.environ["REDIS_DB"] = str(test_settings.REDIS_DB)
+    
+    # Override app settings with test settings
+    app.state.settings = test_settings
 
 @pytest.fixture(autouse=True)
 async def cleanup_test_data(neo4j_test_session: AsyncSession) -> AsyncGenerator[None, None]:
