@@ -6,14 +6,15 @@ from neo4j import AsyncGraphDatabase, AsyncDriver, AsyncSession
 from redis import Redis
 import pytest
 import pytest_asyncio
-from rational_onion.config import TestSettings
+from rational_onion.config import TestSettings, get_test_settings
 from fastapi.testclient import TestClient
+import os
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger(__name__)
 
-settings = TestSettings()
+settings = get_test_settings()
 
 def get_test_connection_resolver() -> Callable[[tuple | str], list[tuple[str, int]]]:
     """Custom resolver to force IPv4 for tests"""
@@ -26,59 +27,39 @@ def get_test_connection_resolver() -> Callable[[tuple | str], list[tuple[str, in
         return [(str(host), port)]
     return resolve
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
+    """Create an event loop for each test."""
     loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     yield loop
+    # Clean up all pending tasks
+    pending = asyncio.all_tasks(loop)
+    for task in pending:
+        task.cancel()
+    # Run loop to complete any remaining tasks
+    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
     loop.close()
 
-@pytest_asyncio.fixture(scope="session")
-async def neo4j_test_driver() -> AsyncGenerator[AsyncDriver, None]:
-    """Create a test Neo4j driver instance."""
-    log.debug("Creating Neo4j test driver")
-    
-    # Create driver with explicit IPv4 address and additional parameters
+@pytest_asyncio.fixture(scope="function")
+async def neo4j_test_session() -> AsyncGenerator[AsyncSession, None]:
+    """Create a test Neo4j session."""
     driver = AsyncGraphDatabase.driver(
         "bolt://127.0.0.1:7687",
         auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD),
-        max_connection_lifetime=60,  # 1 minute max lifetime
-        max_connection_pool_size=1,  # Limit pool size for tests
-        connection_timeout=5,  # 5 seconds timeout
-        encrypted=False  # Disable encryption for local testing
+        max_connection_lifetime=60,
+        max_connection_pool_size=1,
+        connection_timeout=5,
+        encrypted=False
     )
-
-    try:
-        # Verify the connection works
-        async with driver.session() as session:
-            result = await session.run("RETURN 1")
-            await result.consume()
-            log.debug("Successfully verified Neo4j connection")
-    except Exception as e:
-        log.error(f"Failed to verify Neo4j connection: {e}")
-        await driver.close()
-        raise
-
-    try:
-        yield driver
-    finally:
-        log.debug("Closing Neo4j test driver")
-        await driver.close()
-
-@pytest_asyncio.fixture(scope="session")
-async def neo4j_test_session(neo4j_test_driver: AsyncDriver) -> AsyncGenerator[AsyncSession, None]:
-    """Create a test Neo4j session."""
-    log.debug("Creating Neo4j test session")
-    session = neo4j_test_driver.session()
     
     try:
-        # Clear existing data
-        await session.run("MATCH (n) DETACH DELETE n")
-        log.debug("Cleared existing Neo4j data")
-        
-        yield session
+        async with driver.session(database=settings.NEO4J_DATABASE) as session:
+            # Clear existing data
+            await session.run("MATCH (n) DETACH DELETE n")
+            yield session
     finally:
-        log.debug("Closing Neo4j test session")
-        await session.close()
+        await driver.close()
 
 @pytest.fixture(scope="session")
 def redis_test_client() -> Generator[Redis, None, None]:
@@ -136,4 +117,22 @@ def valid_api_key() -> str:
 def test_client() -> TestClient:
     """Create a test client for the FastAPI application."""
     from rational_onion.api.main import app
-    return TestClient(app) 
+    return TestClient(app)
+
+@pytest.fixture(scope="session", autouse=True)
+def configure_test_env() -> None:
+    """Configure test environment settings"""
+    from rational_onion.api.dependencies import limiter
+    # Disable rate limiting by default for tests
+    limiter.enabled = False
+    
+    # Ensure test database is used
+    settings = get_test_settings()
+    os.environ["NEO4J_DATABASE"] = settings.NEO4J_DATABASE
+    os.environ["REDIS_DB"] = str(settings.REDIS_DB)
+
+@pytest.fixture(autouse=True)
+async def cleanup_test_data(neo4j_test_session: AsyncSession) -> AsyncGenerator[None, None]:
+    """Clean up test data before and after each test"""
+    await neo4j_test_session.run("MATCH (n) DETACH DELETE n")
+    yield 

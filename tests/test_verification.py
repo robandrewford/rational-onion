@@ -50,9 +50,10 @@ async def test_verification_error_handling(
     # Close the driver to force a connection error
     await neo4j_test_driver.close()
     
-    response = test_client.get(
+    response = test_client.post(
         "/verify-argument-structure",
-        headers={"X-API-Key": valid_api_key}
+        headers={"X-API-Key": valid_api_key},
+        json={"argument_id": 999999}
     )
     assert response.status_code == 500
     data = response.json()

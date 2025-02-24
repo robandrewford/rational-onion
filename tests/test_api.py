@@ -60,11 +60,11 @@ def test_verify_argument_structure_success(test_client: TestClient, valid_api_ke
     assert insert_response.status_code == 200
     argument_id = insert_response.json()["argument_id"]
 
-    # Then verify its structure
+    # Then verify its structure - Fix the payload to match ArgumentRequest model
     response = test_client.post(
         "/verify-argument-structure",
         headers={"X-API-Key": valid_api_key},
-        json={"id": argument_id}
+        json={"argument_id": argument_id}  # Changed from "id" to "argument_id"
     )
     assert response.status_code == 200
     data = response.json()
