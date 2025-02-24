@@ -52,6 +52,21 @@ app.add_middleware(
 async def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
     return rate_limit_exceeded_handler(request, exc)
 
+# Register validation error handler
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Handle validation errors and return a consistent error format."""
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": {
+                "error_type": ErrorType.VALIDATION_ERROR.value,
+                "message": "Validation error",
+                "errors": exc.errors()
+            }
+        }
+    )
+
 # Include routers
 app.include_router(argument_processing_router, tags=["Argument Processing"])
 app.include_router(argument_verification_router, tags=["Argument Verification"])

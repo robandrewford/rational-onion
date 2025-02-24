@@ -52,7 +52,8 @@ async def visualize_argument_dag(
         for node in record["nodes"]:
             nodes.append({
                 "id": str(node.element_id),
-                "label": node["text"],
+                "label": "Claim",
+                "text": node["text"],
                 "type": "claim"
             })
         

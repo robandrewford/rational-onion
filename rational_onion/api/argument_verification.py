@@ -68,8 +68,10 @@ async def verify_argument_structure(
             try:
                 # Check for cycles in entire graph
                 query = """
-                MATCH path = (start:Claim)-[:SUPPORTS|JUSTIFIES*]->(end:Claim)
-                WHERE elementId(start) = elementId(end)
+                MATCH path = (start)-[:SUPPORTS|JUSTIFIES*]->(end)
+                WHERE (start:Argument OR start:Claim)
+                AND (end:Argument OR end:Claim)
+                AND elementId(start) = elementId(end)
                 RETURN path
                 """
                 result = await session.run(query)
@@ -88,8 +90,9 @@ async def verify_argument_structure(
                 
                 # Check for invalid relationships first
                 query = """
-                MATCH (n:Claim)-[r]->(m)
-                WHERE NOT type(r) IN ['SUPPORTS', 'JUSTIFIES']
+                MATCH (n)-[r]->(m)
+                WHERE (n:Argument OR n:Claim)
+                AND NOT type(r) IN ['SUPPORTS', 'JUSTIFIES']
                 WITH type(r) as invalid_type
                 RETURN collect(invalid_type) as invalid_types
                 """
@@ -108,12 +111,19 @@ async def verify_argument_structure(
                 
                 # Check for orphaned nodes
                 query = """
-                MATCH (n:Claim)
-                WHERE NOT EXISTS((n)-[:SUPPORTS|JUSTIFIES]-())
+                MATCH (n)
+                WHERE (n:Argument OR n:Claim)
+                AND NOT EXISTS((n)-[:SUPPORTS|JUSTIFIES]-())
                 AND NOT EXISTS(()-[:SUPPORTS|JUSTIFIES]->(n))
+                AND EXISTS {
+                    MATCH (other)
+                    WHERE (other:Argument OR other:Claim)
+                    AND elementId(other) <> elementId(n)
+                    RETURN other
+                }
                 RETURN n
                 """
-                result = await session.run(query)
+                result = await session.run(query, {"argument_id": argument.argument_id})
                 records = await result.data()
                 
                 if records:
@@ -164,8 +174,9 @@ async def verify_argument_structure(
             # Verify the argument exists first
             try:
                 query = """
-                MATCH (n:Claim)
-                WHERE elementId(n) = $argument_id
+                MATCH (n)
+                WHERE (n:Argument OR n:Claim)
+                AND elementId(n) = $argument_id
                 RETURN n
                 """
                 result = await session.run(query, {"argument_id": argument.argument_id})
@@ -195,8 +206,10 @@ async def verify_argument_structure(
             # Check for cycles
             try:
                 query = """
-                MATCH path = (start:Claim)-[:SUPPORTS|JUSTIFIES*]->(end:Claim)
-                WHERE elementId(start) = $argument_id
+                MATCH path = (start)-[:SUPPORTS|JUSTIFIES*]->(end)
+                WHERE (start:Argument OR start:Claim)
+                AND (end:Argument OR end:Claim)
+                AND elementId(start) = $argument_id
                 AND elementId(end) = $argument_id
                 RETURN path
                 """
@@ -226,7 +239,7 @@ async def verify_argument_structure(
             # Verify relationship validity first
             try:
                 query = """
-                MATCH (n:Claim)-[r]->(m)
+                MATCH (n:Argument)-[r]->(m)
                 WHERE elementId(n) = $argument_id
                 AND NOT type(r) IN ['SUPPORTS', 'JUSTIFIES']
                 WITH type(r) as invalid_type
@@ -258,10 +271,15 @@ async def verify_argument_structure(
             # Check for orphaned nodes last
             try:
                 query = """
-                MATCH (n:Claim)
+                MATCH (n:Argument)
                 WHERE elementId(n) = $argument_id
                 AND NOT EXISTS((n)-[:SUPPORTS|JUSTIFIES]-())
                 AND NOT EXISTS(()-[:SUPPORTS|JUSTIFIES]->(n))
+                AND EXISTS {
+                    MATCH (other:Argument)
+                    WHERE elementId(other) <> $argument_id
+                    RETURN other
+                }
                 RETURN n
                 """
                 result = await session.run(query, {"argument_id": argument.argument_id})

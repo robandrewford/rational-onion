@@ -20,6 +20,10 @@ class ArgumentResponse(BaseModel):
     rebuttal: Optional[str] = None
     message: str
 
+class InsertArgumentResponse(BaseModel):
+    argument_id: str
+    message: str
+
 class ArgumentImprovementSuggestions(BaseModel):
     claim: str
     improvement_suggestions: List[str]

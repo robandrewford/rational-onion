@@ -48,6 +48,20 @@ class Settings(BaseSettings):
     CACHE_TTL: int = 3600  # 1 hour
     CACHE_ENABLED: bool = True
 
+    @validator("API_PORT")
+    def validate_api_port(cls, v: int) -> int:
+        """Validate API port number"""
+        if v <= 0:
+            raise ValueError("API port must be positive")
+        return v
+        
+    @validator("REDIS_DB")
+    def validate_redis_db(cls, v: int) -> int:
+        """Validate Redis DB number"""
+        if v < 0:
+            raise ValueError("Redis DB must be non-negative")
+        return v
+
     @validator("RATE_LIMIT")
     def validate_rate_limit(cls, v: str) -> str:
         """Validate rate limit format"""

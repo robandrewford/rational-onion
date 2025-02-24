@@ -1,6 +1,7 @@
 ---
 description: Plan to resolve the testing errors
 globs: 
+alwaysApply: false
 ---
 # Follow these rules step-by-step, carefully reviewing the output and resolving errors as accurately as possible.
 

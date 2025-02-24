@@ -3,7 +3,7 @@
 from typing import Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from rational_onion.services.neo4j_service import driver
-from rational_onion.models.toulmin_model import ArgumentRequest, ArgumentResponse
+from rational_onion.models.toulmin_model import ArgumentRequest, ArgumentResponse, InsertArgumentResponse
 from rational_onion.config import get_settings
 from rational_onion.api.errors import (
     ValidationError, ArgumentError, DatabaseError, 
@@ -35,7 +35,7 @@ def validate_argument_length(argument: ArgumentRequest) -> None:
             field="warrant"
         )
 
-@router.post("/insert-argument", response_model=ArgumentResponse)
+@router.post("/insert-argument", response_model=InsertArgumentResponse)
 @limiter.limit("100/minute")
 async def insert_argument(
     request: Request,

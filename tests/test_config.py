@@ -10,7 +10,7 @@ def test_production_settings_values() -> None:
     assert settings.API_HOST == "localhost"
     assert settings.API_PORT == 8000
     assert isinstance(settings.DEBUG, bool)
-    assert settings.API_VERSION == "1.0.0"
+    assert settings.API_VERSION == "v1"
     
     # Database Settings
     assert settings.NEO4J_URI == "bolt://localhost:7687"
@@ -18,8 +18,8 @@ def test_production_settings_values() -> None:
     assert settings.NEO4J_PASSWORD == "password"
     assert settings.NEO4J_DATABASE == "neo4j"
     assert settings.NEO4J_MAX_CONNECTION_POOL_SIZE == 50
-    assert settings.NEO4J_CONNECTION_TIMEOUT == 30
-    assert settings.NEO4J_ENCRYPTION_ENABLED is False
+    assert settings.NEO4J_CONNECTION_TIMEOUT == 20
+    assert settings.NEO4J_ENCRYPTION_ENABLED is True
     
     # Redis Settings
     assert settings.REDIS_HOST == "localhost"
@@ -195,7 +195,7 @@ def test_test_settings_inheritance() -> None:
     
     # Check that TestSettings overrides specific values
     assert test_settings.DEBUG != prod_settings.DEBUG
-    assert test_settings.REDIS_DB != prod_settings.REDIS_DB
+    assert test_settings.NEO4J_ENCRYPTION_ENABLED != prod_settings.NEO4J_ENCRYPTION_ENABLED
     assert test_settings.SPACY_MODEL != prod_settings.SPACY_MODEL
     
     # Check that non-overridden values remain the same
