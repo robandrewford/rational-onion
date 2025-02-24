@@ -1,4 +1,4 @@
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from pydantic import BaseSettings
 from functools import lru_cache
 import os
@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     # Security Settings
     API_KEY_NAME: str = "X-API-Key"
     VALID_API_KEYS: List[str] = ["test_api_key_123"]
-    RATE_LIMIT: str = "100/minute"
+    RATE_LIMIT: str = "10/minute"
     
     # Argument Settings
     MAX_CLAIM_LENGTH: int = 500
@@ -58,14 +58,14 @@ class TestSettings(Settings):
     NEO4J_URI: str = "bolt://localhost:7687"
     NEO4J_USER: str = "neo4j"
     NEO4J_PASSWORD: str = "password"
-    NEO4J_DATABASE: str = "neo4j"  # Use default database for tests
+    NEO4J_DATABASE: str = "neo4j"  # Make sure this matches your test database
     NEO4J_MAX_CONNECTION_POOL_SIZE: int = 50
     NEO4J_CONNECTION_TIMEOUT: int = 30
     NEO4J_ENCRYPTION_ENABLED: bool = False
     
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
-    REDIS_DB: int = 1  # Use a different Redis database for tests
+    REDIS_DB: int = 1  # Use a different DB for tests
     REDIS_SSL: bool = False  # SSL/TLS for Redis in test environment
     
     SPACY_MODEL: str = "en_core_web_sm"  # Smaller Spacy model for tests
@@ -74,7 +74,7 @@ class TestSettings(Settings):
     RATE_LIMIT: str = "10/minute"  # Lower rate limit for tests
     
     # API Key for testing
-    TEST_API_KEY: str = "test_api_key"
+    TEST_API_KEY: str = "test-key"
     
     # Test Data
     DEFAULT_TEST_ARGUMENT: Dict[str, str] = {

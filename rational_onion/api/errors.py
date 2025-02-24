@@ -3,14 +3,14 @@ from typing import Dict, Any, Optional
 from fastapi import HTTPException
 
 class ErrorType(str, Enum):
-    """Enumeration of error types"""
+    """API error types"""
     VALIDATION_ERROR = "VALIDATION_ERROR"
     DATABASE_ERROR = "DATABASE_ERROR"
     GRAPH_ERROR = "GRAPH_ERROR"
     ARGUMENT_ERROR = "ARGUMENT_ERROR"
     CITATION_ERROR = "CITATION_ERROR"
     INTERNAL_ERROR = "INTERNAL_ERROR"
-    RATE_LIMIT_EXCEEDED = "RATE_LIMIT_EXCEEDED"
+    RATE_LIMIT_ERROR = "RATE_LIMIT_ERROR"
 
 class BaseError(Exception):
     """Base error class for custom exceptions"""

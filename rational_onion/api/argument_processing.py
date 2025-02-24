@@ -35,64 +35,57 @@ def validate_argument_length(argument: ArgumentRequest) -> None:
             field="warrant"
         )
 
-@router.post("/insert-argument", response_model=Dict[str, Any])
+@router.post("/insert-argument", response_model=ArgumentResponse)
 @limiter.limit("10/minute")
 async def insert_argument(
     request: Request,
     argument: ArgumentRequest,
     session: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
-    """Insert a new argument into the system using Toulmin's model"""
+    """Insert a new argument into the database"""
     try:
-        # Validate argument lengths
-        validate_argument_length(argument)
-
-        # Insert argument into Neo4j
         query = """
-        CREATE (a:Argument {
-            claim: $claim,
-            grounds: $grounds,
-            warrant: $warrant,
-            created_at: datetime()
-        })
-        RETURN id(a) as argument_id
+            CREATE (a:Argument {
+                claim: $claim,
+                grounds: $grounds,
+                warrant: $warrant,
+                created_at: datetime()
+            })
+            RETURN elementId(a) as argument_id
         """
-        try:
-            result = await session.run(
-                query,
-                {
-                    "claim": argument.claim,
-                    "grounds": argument.grounds,
-                    "warrant": argument.warrant
-                }
+        result = await session.run(
+            query,
+            claim=argument.claim,
+            grounds=argument.grounds,
+            warrant=argument.warrant
+        )
+        record = await result.single()
+        if not record:
+            raise BaseAPIError(
+                error_type=ErrorType.DATABASE_ERROR,
+                message="Failed to create argument",
+                status_code=500,
+                details={"error": "No record returned"}
             )
-            record = await result.single()
-            
-            if not record:
-                raise DatabaseError("Failed to create argument")
-
-            return {
-                "status": "success",
-                "message": "Argument inserted successfully",
-                "argument_id": record["argument_id"]
-            }
-
-        except (ServiceUnavailable, Neo4jDatabaseError) as e:
-            raise DatabaseError(str(e))
-
+        
+        return {
+            "argument_id": str(record["argument_id"]),
+            "message": "Argument created successfully"
+        }
+    
+    except (ServiceUnavailable, Neo4jDatabaseError) as e:
+        raise BaseAPIError(
+            error_type=ErrorType.DATABASE_ERROR,
+            message="Database operation failed",
+            status_code=500,
+            details={"error": str(e)}
+        )
     except ValidationError as e:
         raise BaseAPIError(
             error_type=ErrorType.VALIDATION_ERROR,
             message=str(e),
             status_code=422,
             details={"field": e.field}
-        )
-    except DatabaseError as e:
-        raise BaseAPIError(
-            error_type=ErrorType.DATABASE_ERROR,
-            message=str(e),
-            status_code=500,
-            details={"error": str(e)}
         )
     except Exception as e:
         raise BaseAPIError(

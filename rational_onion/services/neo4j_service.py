@@ -4,6 +4,7 @@ from neo4j import AsyncGraphDatabase
 from rational_onion.config import get_settings
 import logging
 import socket
+from typing import Dict, Any
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -32,3 +33,10 @@ driver = AsyncGraphDatabase.driver(
 
 # Export driver for use in other modules
 __all__ = ['driver']
+
+async def get_argument_by_id(self, argument_id: int) -> Dict[str, Any]:
+    query = """
+    MATCH (a:Argument)
+    WHERE elementId(a) = $argument_id
+    RETURN a
+    """

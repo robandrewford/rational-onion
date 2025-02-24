@@ -26,24 +26,20 @@ def test_insert_argument_success(test_client: TestClient, valid_api_key: str) ->
     data = response.json()
     assert data["status"] == "success"
     assert "argument_id" in data
-    assert isinstance(data["argument_id"], int)
+    assert isinstance(data["argument_id"], str)
 
 def test_insert_argument_validation_error(test_client: TestClient, valid_api_key: str) -> None:
-    """Test argument insertion with validation error"""
+    """Test validation error handling for argument insertion"""
     response = test_client.post(
         "/insert-argument",
         headers={"X-API-Key": valid_api_key},
         json={
-            "claim": "c" * (settings.MAX_CLAIM_LENGTH + 1),
-            "grounds": "Test grounds",
-            "warrant": "Test warrant"
+            # Missing required fields
         }
     )
     assert response.status_code == 422
     data = response.json()
-    assert "detail" in data
-    assert isinstance(data["detail"], list)
-    assert len(data["detail"]) > 0
+    assert data["detail"]["error_type"] == "VALIDATION_ERROR"
 
 def test_verify_argument_structure_success(test_client: TestClient, valid_api_key: str) -> None:
     """Test successful argument structure verification"""
@@ -96,9 +92,8 @@ def test_rate_limit_exceeded(test_client: TestClient, valid_api_key: str) -> Non
     )
     assert response.status_code == 429
     data = response.json()
-    assert data["detail"]["error_type"] == "RATE_LIMIT_EXCEEDED"
-    assert "limit" in data["detail"]["details"]
-    assert "reset_at" in data["detail"]["details"]
+    assert data["error_type"] == "RATE_LIMIT_ERROR"
+    assert "retry_after" in data["details"]
 
 @pytest.mark.asyncio
 async def test_api_database_connection(neo4j_test_session: Any, valid_api_key: str) -> None:

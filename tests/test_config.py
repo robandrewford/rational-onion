@@ -1,42 +1,26 @@
 from typing import Dict
-from pydantic import BaseSettings
-from functools import lru_cache
+from rational_onion.config import TestSettings, get_test_settings
 
-class TestSettings(BaseSettings):
-    """Test configuration settings"""
-    NEO4J_TEST_URI: str = "bolt://localhost:7687"
-    NEO4J_TEST_USER: str = "neo4j"
-    NEO4J_TEST_PASSWORD: str = "password"
-    REDIS_TEST_HOST: str = "localhost"
-    REDIS_TEST_PORT: int = 6379
-    TEST_API_KEY: str = "test_key"
-    RATE_LIMIT: str = "5/minute"
+def test_settings_values() -> None:
+    """Test that test settings have expected values"""
+    settings = get_test_settings()
+    assert settings.NEO4J_URI == "bolt://localhost:7687"
+    assert settings.NEO4J_USER == "neo4j"
+    assert settings.NEO4J_PASSWORD == "password"
+    assert settings.REDIS_HOST == "localhost"
+    assert settings.REDIS_PORT == 6379
+    assert settings.TEST_API_KEY == "test-key"
+    assert settings.RATE_LIMIT == "10/minute"
     
     # Test data configurations
-    DEFAULT_TEST_ARGUMENT: Dict = {
-        "claim": "Test claim",
-        "grounds": "Test grounds",
-        "warrant": "Test warrant"
-    }
+    assert isinstance(settings.DEFAULT_TEST_ARGUMENT, dict)
+    assert "claim" in settings.DEFAULT_TEST_ARGUMENT
+    assert "grounds" in settings.DEFAULT_TEST_ARGUMENT
+    assert "warrant" in settings.DEFAULT_TEST_ARGUMENT
     
     # Error testing configurations
-    TEST_ERROR_MESSAGES: Dict[str, str] = {
-        "database": "Database operation failed",
-        "validation": "Invalid argument structure",
-        "graph": "Invalid graph structure",
-        "citation": "Citation verification failed"
-    }
-    
-    TEST_ERROR_DETAILS: Dict[str, Dict] = {
-        "database": {"operation": "test_operation"},
-        "validation": {"field": "test_field"},
-        "graph": {"node": "test_node"},
-        "citation": {"source": "test_source"}
-    }
-    
-    class Config:
-        env_file = ".env.test"
-
-@lru_cache()
-def get_test_settings() -> TestSettings:
-    return TestSettings() 
+    assert isinstance(settings.TEST_ERROR_MESSAGES, dict)
+    assert "database" in settings.TEST_ERROR_MESSAGES
+    assert "validation" in settings.TEST_ERROR_MESSAGES
+    assert "graph" in settings.TEST_ERROR_MESSAGES
+    assert "citation" in settings.TEST_ERROR_MESSAGES 

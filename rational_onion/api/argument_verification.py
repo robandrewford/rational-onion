@@ -12,130 +12,302 @@ from rational_onion.api.errors import (
 from rational_onion.config import get_settings
 from typing import Dict, Any, Optional, List
 from neo4j.graph import Node, Relationship, Path
+from pydantic import BaseModel
 
 router = APIRouter()
 settings = get_settings()
 
-@router.get("/verify-argument-structure", response_model=Dict[str, Any])
-@router.post("/verify-argument-structure", response_model=Dict[str, Any])
+class VerificationRequest(BaseModel):
+    argument_id: Optional[str] = None
+
+class VerificationResponse(BaseModel):
+    status: str
+    message: str
+    is_valid: bool
+    has_cycles: bool
+    orphaned_nodes: List[str]
+
+@router.get("/verify-argument-structure", response_model=VerificationResponse)
+@router.post("/verify-argument-structure", response_model=VerificationResponse)
 @limiter.limit("10/minute")
 async def verify_argument_structure(
     request: Request,
-    argument: Optional[ArgumentRequest] = None,
+    argument: Optional[VerificationRequest] = None,
     session: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     """Verify the logical structure and consistency of stored arguments"""
     try:
-        # For GET requests without specific argument, verify entire graph
-        if argument is None:
-            # Check for cycles in entire graph
-            query = """
-            MATCH path = (start)-[:SUPPORTS|JUSTIFIES*]->(end)
-            WHERE id(start) = id(end)
-            RETURN path
-            """
+        # For POST requests, argument is required
+        if request.method == "POST" and argument is None:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": ErrorType.VALIDATION_ERROR.value,
+                    "message": "Request body is required",
+                    "details": {"field": "argument"}
+                }
+            )
+        
+        # For POST requests with empty/missing argument_id
+        if request.method == "POST" and (not argument or not argument.argument_id):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": ErrorType.VALIDATION_ERROR.value,
+                    "message": "Argument ID is required",
+                    "details": {"field": "argument_id"}
+                }
+            )
+        
+        # For GET requests or when no argument_id provided
+        if argument is None or argument.argument_id is None:
             try:
+                # Check for cycles in entire graph
+                query = """
+                MATCH path = (start:Claim)-[:SUPPORTS|JUSTIFIES*]->(end:Claim)
+                WHERE elementId(start) = elementId(end)
+                RETURN path
+                """
                 result = await session.run(query)
                 records = await result.data()
+                
+                if records:
+                    raise HTTPException(
+                        status_code=400,
+                        detail={
+                            "error_type": ErrorType.VALIDATION_ERROR.value,
+                            "message": "Cycle detected in argument graph",
+                            "details": {"field": "graph_structure"}
+                        }
+                    )
+                
+                # Check for invalid relationships first
+                query = """
+                MATCH (n:Claim)-[r]->(m)
+                WHERE NOT type(r) IN ['SUPPORTS', 'JUSTIFIES']
+                WITH type(r) as invalid_type
+                RETURN collect(invalid_type) as invalid_types
+                """
+                result = await session.run(query)
+                records = await result.data()
+                if records and records[0].get('invalid_types'):
+                    raise HTTPException(
+                        status_code=400,
+                        detail={
+                            "error_type": ErrorType.VALIDATION_ERROR.value,
+                            "message": "Invalid relationship types found",
+                            "details": {"field": "relationship_type"}
+                        }
+                    )
+                
+                # Check for orphaned nodes
+                query = """
+                MATCH (n:Claim)
+                WHERE NOT EXISTS((n)-[:SUPPORTS|JUSTIFIES]-())
+                AND NOT EXISTS(()-[:SUPPORTS|JUSTIFIES]->(n))
+                RETURN n
+                """
+                result = await session.run(query)
+                records = await result.data()
+                
+                if records:
+                    raise HTTPException(
+                        status_code=400,
+                        detail={
+                            "error_type": ErrorType.VALIDATION_ERROR.value,
+                            "message": "Orphaned nodes found in argument graph",
+                            "details": {"field": "graph_structure"}
+                        }
+                    )
+                
+                return {
+                    "status": "success",
+                    "message": "Graph structure verified successfully",
+                    "is_valid": True,
+                    "has_cycles": False,
+                    "orphaned_nodes": []
+                }
             except (ServiceUnavailable, Neo4jDatabaseError) as e:
-                raise DatabaseError(str(e))
-            
-            if records:
-                raise GraphError("Cycle detected in argument graph")
+                raise HTTPException(
+                    status_code=500,
+                    detail={
+                        "error_type": ErrorType.DATABASE_ERROR.value,
+                        "message": str(e),
+                        "details": {"error": str(e)}
+                    }
+                )
 
-            # Check for orphaned nodes
-            query = """
-            MATCH (n:Argument)
-            WHERE NOT (n)-[:SUPPORTS|JUSTIFIES]-() 
-            AND NOT ()-[:SUPPORTS|JUSTIFIES]->(n)
-            RETURN n
-            """
-            result = await session.run(query)
-            records = await result.data()
-            if records:
-                raise ValidationError(field="graph_structure", message="Orphaned nodes found in argument graph")
+        # For POST requests with specific argument
+        else:
+            if argument.argument_id is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "error_type": ErrorType.VALIDATION_ERROR.value,
+                        "message": "Argument ID is required for verification",
+                        "details": {"field": "argument_id"}
+                    }
+                )
+
+            # Verify the argument exists first
+            try:
+                query = """
+                MATCH (n:Claim)
+                WHERE elementId(n) = $argument_id
+                RETURN n
+                """
+                result = await session.run(query, {"argument_id": argument.argument_id})
+                records = await result.data()
+                if not records:
+                    raise HTTPException(
+                        status_code=404,
+                        detail={
+                            "error_type": ErrorType.VALIDATION_ERROR.value,
+                            "message": "Argument not found",
+                            "details": {"field": "argument_id"}
+                        }
+                    )
+            except (ServiceUnavailable, Neo4jDatabaseError) as e:
+                raise HTTPException(
+                    status_code=500,
+                    detail={
+                        "error_type": ErrorType.DATABASE_ERROR.value,
+                        "message": str(e),
+                        "details": {"error": str(e)}
+                    }
+                )
+
+            # Check for cycles
+            try:
+                query = """
+                MATCH path = (start:Claim)-[:SUPPORTS|JUSTIFIES*]->(end:Claim)
+                WHERE elementId(start) = $argument_id
+                AND elementId(end) = $argument_id
+                RETURN path
+                """
+                result = await session.run(query, {"argument_id": argument.argument_id})
+                records = await result.data()
+                if records:
+                    raise HTTPException(
+                        status_code=400,
+                        detail={
+                            "error_type": ErrorType.VALIDATION_ERROR.value,
+                            "message": "Cycle detected in argument graph",
+                            "details": {"field": "graph_structure"}
+                        }
+                    )
+            except (ServiceUnavailable, Neo4jDatabaseError) as e:
+                raise HTTPException(
+                    status_code=500,
+                    detail={
+                        "error_type": ErrorType.DATABASE_ERROR.value,
+                        "message": str(e),
+                        "details": {"error": str(e)}
+                    }
+                )
+
+            # Verify relationship validity first
+            try:
+                query = """
+                MATCH (n:Claim)-[r]->(m)
+                WHERE elementId(n) = $argument_id
+                AND NOT type(r) IN ['SUPPORTS', 'JUSTIFIES']
+                WITH type(r) as invalid_type
+                RETURN collect(invalid_type) as invalid_types
+                """
+                result = await session.run(query, {"argument_id": argument.argument_id})
+                records = await result.data()
+                if records and records[0].get('invalid_types'):
+                    raise HTTPException(
+                        status_code=400,
+                        detail={
+                            "error_type": ErrorType.VALIDATION_ERROR.value,
+                            "message": "Invalid relationship types found",
+                            "details": {"field": "relationship_type"}
+                        }
+                    )
+            except (ServiceUnavailable, Neo4jDatabaseError) as e:
+                raise HTTPException(
+                    status_code=500,
+                    detail={
+                        "error_type": ErrorType.DATABASE_ERROR.value,
+                        "message": str(e),
+                        "details": {"error": str(e)}
+                    }
+                )
+
+            # Check for orphaned nodes last
+            try:
+                query = """
+                MATCH (n:Claim)
+                WHERE elementId(n) = $argument_id
+                AND NOT EXISTS((n)-[:SUPPORTS|JUSTIFIES]-())
+                AND NOT EXISTS(()-[:SUPPORTS|JUSTIFIES]->(n))
+                RETURN n
+                """
+                result = await session.run(query, {"argument_id": argument.argument_id})
+                records = await result.data()
+                if records:
+                    raise HTTPException(
+                        status_code=400,
+                        detail={
+                            "error_type": ErrorType.VALIDATION_ERROR.value,
+                            "message": "Orphaned nodes found in argument graph",
+                            "details": {"field": "graph_structure"}
+                        }
+                    )
+            except (ServiceUnavailable, Neo4jDatabaseError) as e:
+                raise HTTPException(
+                    status_code=500,
+                    detail={
+                        "error_type": ErrorType.DATABASE_ERROR.value,
+                        "message": str(e),
+                        "details": {"error": str(e)}
+                    }
+                )
 
             return {
                 "status": "success",
+                "message": "Argument structure verified successfully",
+                "is_valid": True,
                 "has_cycles": False,
-                "message": "Graph structure verified successfully",
-                "orphaned_nodes": []  # Added to match test expectations
+                "orphaned_nodes": []
             }
 
-        # For POST requests with specific argument
-        if argument.argument_id is None:
-            raise ValidationError(field="argument_id", message="Argument ID is required for verification")
-
-        try:
-            query = """
-            MATCH path = (start)-[:SUPPORTS|JUSTIFIES*]->(end)
-            WHERE id(start) = $argument_id
-            AND id(end) = $argument_id
-            RETURN path
-            """
-            result = await session.run(query, {"argument_id": argument.argument_id})
-            records = await result.data()
-            if records:
-                raise GraphError("Cycle detected in argument graph")
-
-            # Check for orphaned nodes
-            query = """
-            MATCH (n:Argument)
-            WHERE NOT (n)-[:SUPPORTS|JUSTIFIES]-() 
-            AND NOT ()-[:SUPPORTS|JUSTIFIES]->(n)
-            RETURN n
-            """
-            result = await session.run(query)
-            records = await result.data()
-            if records:
-                raise ValidationError(field="graph_structure", message="Orphaned nodes found in argument graph")
-
-            # Verify relationship validity
-            query = """
-            MATCH (n:Argument)-[r]->(m)
-            WHERE type(r) NOT IN ['SUPPORTS', 'JUSTIFIES']
-            RETURN r
-            """
-            result = await session.run(query)
-            records = await result.data()
-            if records:
-                raise ValidationError(field="relationship_type", message="Invalid relationship types found")
-
-        except (ServiceUnavailable, Neo4jDatabaseError) as e:
-            raise DatabaseError(str(e))
-
-        return {
-            "status": "success",
-            "message": "Argument structure verified successfully",
-            "has_cycles": False,
-            "orphaned_nodes": []  # Added to match test expectations
-        }
-
-    except GraphError as e:
-        raise BaseAPIError(
-            error_type=ErrorType.GRAPH_ERROR,
-            message=str(e),
-            status_code=400,
-            details={"error": str(e)}
-        )
     except ValidationError as e:
-        raise BaseAPIError(
-            error_type=ErrorType.VALIDATION_ERROR,
-            message=str(e),
-            status_code=400,  # Changed from 422 to match test expectations
-            details={"field": e.field}
+        if "argument_id" in str(e):  # Argument not found or invalid ID
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": ErrorType.VALIDATION_ERROR.value,
+                    "message": str(e),
+                    "details": {"field": e.field}
+                }
+            )
+        else:  # Other validation errors (cycles, orphans, etc)
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error_type": ErrorType.VALIDATION_ERROR.value,
+                    "message": str(e),
+                    "details": {"field": e.field}
+                }
+            )
+    except GraphError as e:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_type": ErrorType.GRAPH_ERROR.value,
+                "message": str(e),
+                "details": {"error": str(e)}
+            }
         )
-    except DatabaseError as e:
-        raise BaseAPIError(
-            error_type=ErrorType.DATABASE_ERROR,
-            message=str(e),
+    except (ServiceUnavailable, Neo4jDatabaseError) as e:
+        raise HTTPException(
             status_code=500,
-            details={"error": str(e)}
-        )
-    except Exception as e:
-        raise BaseAPIError(
-            error_type=ErrorType.INTERNAL_ERROR,
-            message="An unexpected error occurred",
-            status_code=500,
-            details={"error": str(e)}
+            detail={
+                "error_type": ErrorType.DATABASE_ERROR.value,
+                "message": str(e),
+                "details": {"error": str(e)}
+            }
         )
