@@ -22,6 +22,7 @@ from rational_onion.api.dag_visualization import router as dag_visualization_rou
 from rational_onion.config import get_settings, Settings
 from rational_onion.api.dependencies import limiter
 from rational_onion.api.errors import ErrorType, BaseAPIError
+from rational_onion.api.rate_limiting import rate_limit_exceeded_handler
 
 # FastAPI app initialization
 settings = get_settings()
@@ -37,84 +38,26 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_middleware(SlowAPIMiddleware)
 
-@app.exception_handler(RateLimitExceeded)
-async def custom_rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
-    """Handle rate limit exceeded errors"""
-    return JSONResponse(
-        status_code=429,
-        content={
-            "detail": {
-                "error_type": ErrorType.RATE_LIMIT_ERROR.value,
-                "message": f"Rate limit exceeded: {exc.detail}",
-                "details": {"retry_after": exc.retry_after if hasattr(exc, 'retry_after') else None}
-            }
-        }
-    )
-
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
-    """Custom handler for validation errors"""
-    return JSONResponse(
-        status_code=422,
-        content={
-            "detail": {
-                "error_type": ErrorType.VALIDATION_ERROR.value,
-                "message": "Validation error",
-                "details": {"errors": exc.errors()}
-            }
-        }
-    )
-
-@app.exception_handler(BaseAPIError)
-async def api_error_handler(request: Request, exc: BaseAPIError) -> JSONResponse:
-    """Custom handler for API errors"""
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
-            "detail": {
-                "error_type": exc.error_type.value,
-                "message": exc.detail["message"],
-                "details": exc.detail["details"]
-            }
-        }
-    )
-
-@app.exception_handler(Exception)
-async def general_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    """Custom handler for unhandled exceptions"""
-    return JSONResponse(
-        status_code=500,
-        content={
-            "detail": {
-                "error_type": ErrorType.INTERNAL_ERROR.value,
-                "message": "An unexpected error occurred",
-                "details": {"error": str(exc)}
-            }
-        }
-    )
-
-# CORS Middleware for the front-end
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Adjust to your domain or keep '*' for development
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Include Routers from other modules
+# Register rate limit handler
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    return rate_limit_exceeded_handler(request, exc)
+
+# Include routers
 app.include_router(argument_processing_router, tags=["Argument Processing"])
 app.include_router(argument_verification_router, tags=["Argument Verification"])
 app.include_router(argument_improvement_router, tags=["Argument Improvement"])
 app.include_router(external_references_router, tags=["External References"])
-app.include_router(dag_visualization_router, tags=["Visualization"])
-
-# Optional: endpoint to toggle caching
-app.post("/toggle-cache")(toggle_cache)
-
-@app.get("/")
-async def root() -> Dict[str, str]:
-    return {"message": "Welcome to the Rational-Onion API!"}
+app.include_router(dag_visualization_router, tags=["DAG Visualization"])
 
 @app.get("/health")
 @limiter.limit(settings.RATE_LIMIT)

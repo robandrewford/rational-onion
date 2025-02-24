@@ -1,6 +1,7 @@
 # rational_onion/api/argument_verification.py
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from neo4j import AsyncSession
 from neo4j.exceptions import ServiceUnavailable, DatabaseError as Neo4jDatabaseError
 from rational_onion.api.dependencies import limiter, get_db, verify_api_key
@@ -27,36 +28,38 @@ class VerificationResponse(BaseModel):
     has_cycles: bool
     orphaned_nodes: List[str]
 
-@router.get("/verify-argument-structure", response_model=VerificationResponse)
-@router.post("/verify-argument-structure", response_model=VerificationResponse)
+@router.get("/verify-argument-structure")
+@router.post("/verify-argument-structure")
 @limiter.limit("100/minute")
 async def verify_argument_structure(
     request: Request,
     argument: Optional[VerificationRequest] = None,
     session: AsyncSession = Depends(get_db),
     api_key: str = Depends(verify_api_key)
-) -> VerificationResponse:
+) -> JSONResponse:
     """Verify the logical structure and consistency of stored arguments"""
     try:
         # For POST requests, argument is required
         if request.method == "POST" and argument is None:
-            raise HTTPException(
+            return JSONResponse(
                 status_code=422,
-                detail={
-                    "error_type": ErrorType.VALIDATION_ERROR.value,
-                    "message": "Request body is required",
-                    "details": {"field": "argument"}
+                content={
+                    "detail": {
+                        "error_type": ErrorType.VALIDATION_ERROR.value,
+                        "message": "Request body is required"
+                    }
                 }
             )
         
         # For POST requests with empty/missing argument_id
         if request.method == "POST" and (not argument or not argument.argument_id):
-            raise HTTPException(
+            return JSONResponse(
                 status_code=422,
-                detail={
-                    "error_type": ErrorType.VALIDATION_ERROR.value,
-                    "message": "Argument ID is required",
-                    "details": {"field": "argument_id"}
+                content={
+                    "detail": {
+                        "error_type": ErrorType.VALIDATION_ERROR.value,
+                        "message": "Argument ID is required"
+                    }
                 }
             )
         
@@ -73,12 +76,13 @@ async def verify_argument_structure(
                 records = await result.data()
                 
                 if records:
-                    raise HTTPException(
+                    return JSONResponse(
                         status_code=400,
-                        detail={
-                            "error_type": ErrorType.VALIDATION_ERROR.value,
-                            "message": "Cycle detected in argument graph",
-                            "details": {"field": "graph_structure"}
+                        content={
+                            "detail": {
+                                "error_type": ErrorType.VALIDATION_ERROR.value,
+                                "message": "Cycle detected in argument graph"
+                            }
                         }
                     )
                 
@@ -92,12 +96,13 @@ async def verify_argument_structure(
                 result = await session.run(query)
                 records = await result.data()
                 if records and records[0].get('invalid_types'):
-                    raise HTTPException(
+                    return JSONResponse(
                         status_code=400,
-                        detail={
-                            "error_type": ErrorType.VALIDATION_ERROR.value,
-                            "message": "Invalid relationship types found",
-                            "details": {"field": "relationship_type"}
+                        content={
+                            "detail": {
+                                "error_type": ErrorType.VALIDATION_ERROR.value,
+                                "message": "Invalid relationship types found"
+                            }
                         }
                     )
                 
@@ -112,41 +117,47 @@ async def verify_argument_structure(
                 records = await result.data()
                 
                 if records:
-                    raise HTTPException(
+                    return JSONResponse(
                         status_code=400,
-                        detail={
-                            "error_type": ErrorType.VALIDATION_ERROR.value,
-                            "message": "Orphaned nodes found in argument graph",
-                            "details": {"field": "graph_structure"}
+                        content={
+                            "detail": {
+                                "error_type": ErrorType.VALIDATION_ERROR.value,
+                                "message": "Orphaned nodes found in argument graph"
+                            }
                         }
                     )
                 
-                return VerificationResponse(
-                    status="success",
-                    message="Graph structure verified successfully",
-                    is_valid=True,
-                    has_cycles=False,
-                    orphaned_nodes=[]
+                return JSONResponse(
+                    status_code=200,
+                    content=VerificationResponse(
+                        status="success",
+                        message="Graph structure verified successfully",
+                        is_valid=True,
+                        has_cycles=False,
+                        orphaned_nodes=[]
+                    ).dict()
                 )
             except (ServiceUnavailable, Neo4jDatabaseError) as e:
-                raise HTTPException(
+                return JSONResponse(
                     status_code=500,
-                    detail={
-                        "error_type": ErrorType.DATABASE_ERROR.value,
-                        "message": str(e),
-                        "details": {"error": str(e)}
+                    content={
+                        "detail": {
+                            "error_type": ErrorType.DATABASE_ERROR.value,
+                            "message": str(e)
+                        }
                     }
                 )
 
         # For POST requests with specific argument
         else:
             if argument.argument_id is None:
-                raise HTTPException(
+                return JSONResponse(
                     status_code=422,
-                    detail={
-                        "error_type": ErrorType.VALIDATION_ERROR.value,
-                        "message": "Argument ID is required for verification",
-                        "details": {"field": "argument_id"}
+                    content={
+                        "detail": {
+                            "error_type": ErrorType.VALIDATION_ERROR.value,
+                            "message": "Argument ID is required for verification"
+                        }
                     }
                 )
 
@@ -160,21 +171,24 @@ async def verify_argument_structure(
                 result = await session.run(query, {"argument_id": argument.argument_id})
                 records = await result.data()
                 if not records:
-                    raise HTTPException(
-                        status_code=404,
-                        detail={
-                            "error_type": ErrorType.VALIDATION_ERROR.value,
-                            "message": "Argument not found",
-                            "details": {"field": "argument_id"}
-                        }
+                    return JSONResponse(
+                        status_code=200,
+                        content=VerificationResponse(
+                            status="success",
+                            message="Argument not found",
+                            is_valid=False,
+                            has_cycles=False,
+                            orphaned_nodes=[]
+                        ).dict()
                     )
             except (ServiceUnavailable, Neo4jDatabaseError) as e:
-                raise HTTPException(
+                return JSONResponse(
                     status_code=500,
-                    detail={
-                        "error_type": ErrorType.DATABASE_ERROR.value,
-                        "message": str(e),
-                        "details": {"error": str(e)}
+                    content={
+                        "detail": {
+                            "error_type": ErrorType.DATABASE_ERROR.value,
+                            "message": str(e)
+                        }
                     }
                 )
 
@@ -189,21 +203,23 @@ async def verify_argument_structure(
                 result = await session.run(query, {"argument_id": argument.argument_id})
                 records = await result.data()
                 if records:
-                    raise HTTPException(
+                    return JSONResponse(
                         status_code=400,
-                        detail={
-                            "error_type": ErrorType.VALIDATION_ERROR.value,
-                            "message": "Cycle detected in argument graph",
-                            "details": {"field": "graph_structure"}
+                        content={
+                            "detail": {
+                                "error_type": ErrorType.VALIDATION_ERROR.value,
+                                "message": "Cycle detected in argument graph"
+                            }
                         }
                     )
             except (ServiceUnavailable, Neo4jDatabaseError) as e:
-                raise HTTPException(
+                return JSONResponse(
                     status_code=500,
-                    detail={
-                        "error_type": ErrorType.DATABASE_ERROR.value,
-                        "message": str(e),
-                        "details": {"error": str(e)}
+                    content={
+                        "detail": {
+                            "error_type": ErrorType.DATABASE_ERROR.value,
+                            "message": str(e)
+                        }
                     }
                 )
 
@@ -219,21 +235,23 @@ async def verify_argument_structure(
                 result = await session.run(query, {"argument_id": argument.argument_id})
                 records = await result.data()
                 if records and records[0].get('invalid_types'):
-                    raise HTTPException(
+                    return JSONResponse(
                         status_code=400,
-                        detail={
-                            "error_type": ErrorType.VALIDATION_ERROR.value,
-                            "message": "Invalid relationship types found",
-                            "details": {"field": "relationship_type"}
+                        content={
+                            "detail": {
+                                "error_type": ErrorType.VALIDATION_ERROR.value,
+                                "message": "Invalid relationship types found"
+                            }
                         }
                     )
             except (ServiceUnavailable, Neo4jDatabaseError) as e:
-                raise HTTPException(
+                return JSONResponse(
                     status_code=500,
-                    detail={
-                        "error_type": ErrorType.DATABASE_ERROR.value,
-                        "message": str(e),
-                        "details": {"error": str(e)}
+                    content={
+                        "detail": {
+                            "error_type": ErrorType.DATABASE_ERROR.value,
+                            "message": str(e)
+                        }
                     }
                 )
 
@@ -249,66 +267,44 @@ async def verify_argument_structure(
                 result = await session.run(query, {"argument_id": argument.argument_id})
                 records = await result.data()
                 if records:
-                    raise HTTPException(
+                    return JSONResponse(
                         status_code=400,
-                        detail={
-                            "error_type": ErrorType.VALIDATION_ERROR.value,
-                            "message": "Orphaned nodes found in argument graph",
-                            "details": {"field": "graph_structure"}
+                        content={
+                            "detail": {
+                                "error_type": ErrorType.VALIDATION_ERROR.value,
+                                "message": "Orphaned nodes found in argument graph"
+                            }
                         }
                     )
             except (ServiceUnavailable, Neo4jDatabaseError) as e:
-                raise HTTPException(
+                return JSONResponse(
                     status_code=500,
-                    detail={
-                        "error_type": ErrorType.DATABASE_ERROR.value,
-                        "message": str(e),
-                        "details": {"error": str(e)}
+                    content={
+                        "detail": {
+                            "error_type": ErrorType.DATABASE_ERROR.value,
+                            "message": str(e)
+                        }
                     }
                 )
 
-            return VerificationResponse(
-                status="success",
-                message="Argument structure verified successfully",
-                is_valid=True,
-                has_cycles=False,
-                orphaned_nodes=[]
+            # If all checks pass, return success
+            return JSONResponse(
+                status_code=200,
+                content=VerificationResponse(
+                    status="success",
+                    message="Argument structure verified successfully",
+                    is_valid=True,
+                    has_cycles=False,
+                    orphaned_nodes=[]
+                ).dict()
             )
-
-    except ValidationError as e:
-        if "argument_id" in str(e):  # Argument not found or invalid ID
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": ErrorType.VALIDATION_ERROR.value,
-                    "message": str(e),
-                    "details": {"field": e.field}
-                }
-            )
-        else:  # Other validation errors (cycles, orphans, etc)
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error_type": ErrorType.VALIDATION_ERROR.value,
-                    "message": str(e),
-                    "details": {"field": e.field}
-                }
-            )
-    except GraphError as e:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error_type": ErrorType.GRAPH_ERROR.value,
-                "message": str(e),
-                "details": {"error": str(e)}
-            }
-        )
-    except (ServiceUnavailable, Neo4jDatabaseError) as e:
-        raise HTTPException(
+    except Exception as e:
+        return JSONResponse(
             status_code=500,
-            detail={
-                "error_type": ErrorType.DATABASE_ERROR.value,
-                "message": str(e),
-                "details": {"error": str(e)}
+            content={
+                "detail": {
+                    "error_type": ErrorType.UNKNOWN_ERROR.value,
+                    "message": "An unexpected error occurred"
+                }
             }
         )

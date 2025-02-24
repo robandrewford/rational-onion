@@ -11,7 +11,11 @@ import sys
 settings = get_test_settings() if "pytest" in sys.modules else get_settings()
 
 # Initialize rate limiter with default in-memory storage
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(
+    key_func=get_remote_address,
+    headers_enabled=True,  # Enable rate limit headers
+    strategy='fixed-window'  # Use fixed window strategy
+)
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Get Neo4j database session"""
@@ -43,6 +47,6 @@ async def verify_api_key(request: Request) -> str:
     if not api_key or api_key not in settings.VALID_API_KEYS:
         raise HTTPException(
             status_code=401,
-            detail="Invalid API key"
+            detail="API key is missing or invalid"
         )
     return api_key 

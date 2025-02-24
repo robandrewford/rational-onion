@@ -1,0 +1,73 @@
+---
+description: Plan to resolve the testing errors
+globs: 
+---
+# Follow these rules step-by-step, carefully reviewing the output and resolving errors as accurately as possible.
+
+# Error Resolution Plan for Test Suite
+
+## 1. Review and Fix Test Failures
+
+### `tests/test_api.py`
+
+- **`test_insert_argument_success`**:
+  - **Error**: Unhandled errors in a TaskGroup.
+  - **Action**: Check the `/insert-argument` endpoint in `rational_onion/api/argument_processing.py` for unhandled exceptions. Ensure the `TestClient` is correctly configured with necessary dependencies.
+
+- **`test_verify_argument_structure_success`**:
+  - **Error**: Unhandled errors in a TaskGroup.
+  - **Action**: Verify the `/verify-argument-structure` endpoint in `rational_onion/api/argument_verification.py`. Ensure valid data is provided in the test setup.
+
+- **`test_rate_limit_exceeded`**:
+  - **Error**: Unhandled errors in a TaskGroup.
+  - **Action**: Check rate limiting logic in `rational_onion/api/dependencies.py`. Ensure the rate limiter is reset between tests.
+
+### `tests/test_config.py`
+
+- **`test_production_settings_values`**:
+  - **Error**: AssertionError: `'v1' == '1.0.0'`.
+  - **Action**: Check `API_VERSION` in `rational_onion/config.py`. Update the test or settings for consistency.
+
+- **`test_test_settings_values`**:
+  - **Error**: AssertionError: `'en_core_web_md' == 'en_core_web_sm'`.
+  - **Action**: Verify `SPACY_MODEL` in `TestSettings` within `rational_onion/config.py`.
+
+- **`test_test_settings_inheritance`**:
+  - **Error**: AssertionError: `1 != 1`.
+  - **Action**: Review test logic in `tests/test_config.py` to ensure correct inheritance checks.
+
+### `tests/test_dag.py`
+
+- **`test_unauthorized_access`**:
+  - **Error**: AssertionError: `'API key' in 'invalid api key'`.
+  - **Action**: Ensure unauthorized access simulation in `rational_onion/api/dag_visualization.py` returns expected error messages.
+
+- **`test_rate_limiting`**:
+  - **Error**: AssertionError: `'X-RateLimit-Limit' in Headers`.
+  - **Action**: Verify rate limiting headers in `rational_onion/api/dag_visualization.py`.
+
+### `tests/test_neo4j_connection.py`
+
+- **`test_connection_timeout`**:
+  - **Error**: ValueError: Cannot resolve address `invalid.host:7687`.
+  - **Action**: Use a valid host address in `tests/test_neo4j_connection.py` to simulate timeout scenarios.
+
+## 2. Review and Fix Test Errors
+
+- **`tests/test_argument_processing.py`**: Address errors related to argument processing.
+  - **Action**: Review logic in `rational_onion/api/argument_processing.py`. Ensure dependencies are correctly mocked or set up.
+
+- **`tests/test_verification.py`**: Address errors related to verification.
+  - **Action**: Verify logic in `rational_onion/api/argument_verification.py`. Ensure valid data and dependencies in the test setup.
+
+## 3. Improve Test Coverage
+
+- **Review Uncovered Code**: Identify uncovered areas in `rational_onion/api/` and `rational_onion/services/`.
+- **Add Missing Tests**: Write additional tests in `tests/` to cover uncovered code paths.
+- **Refactor Tests**: Simplify and refactor existing tests using fixtures and parameterized tests.
+
+## 4. General Recommendations
+
+- **Use Mocks and Fixtures**: Ensure external dependencies are mocked in `tests/conftest.py`.
+- **Check Environment Configuration**: Verify test environment settings in `rational_onion/config.py`.
+- **Review Logs and Warnings**: Address warnings or errors in test logs for a clean test run.

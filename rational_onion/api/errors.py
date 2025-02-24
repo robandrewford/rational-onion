@@ -11,6 +11,7 @@ class ErrorType(str, Enum):
     CITATION_ERROR = "CITATION_ERROR"
     INTERNAL_ERROR = "INTERNAL_ERROR"
     RATE_LIMIT_ERROR = "RATE_LIMIT_ERROR"
+    AUTHENTICATION_ERROR = "AUTHENTICATION_ERROR"
 
 class BaseError(Exception):
     """Base error class for custom exceptions"""

@@ -1,82 +1,97 @@
 # rational_onion/api/dag_visualization.py
 
-from fastapi import APIRouter, HTTPException, Request, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from neo4j import AsyncSession
 from neo4j.exceptions import ServiceUnavailable, DatabaseError as Neo4jDatabaseError
-from rational_onion.api.errors import ErrorType, BaseAPIError
-from rational_onion.api.dependencies import limiter, verify_api_key, get_db
+from rational_onion.api.dependencies import limiter, get_db, verify_api_key
+from rational_onion.api.errors import ErrorType
+from typing import Dict, Any, List
+from pydantic import BaseModel
 
 router = APIRouter()
 
-@router.get("/visualize-dag")
+class DagVisualizationResponse(BaseModel):
+    nodes: List[Dict[str, Any]]
+    edges: List[Dict[str, Any]]
+    layout: Dict[str, str] = {"name": "cose"}
+    message: str = "Graph visualization generated successfully"
+
+@router.get("/visualize-argument-dag")
 @limiter.limit("100/minute")
 async def visualize_argument_dag(
     request: Request,
+    response: Response,
     session: AsyncSession = Depends(get_db),
     api_key: str = Depends(verify_api_key)
 ) -> JSONResponse:
-    """
-    Generate graph visualization data for argument structure.
-    
-    Creates a DAG representation showing:
-        - Claims, grounds, warrants as nodes
-        - Logical relationships as edges
-        - Support and challenge relationships
-        - Component metadata for visualization
-    
-    Returns:
-        Dict containing:
-            - nodes: List of argument components with properties
-            - edges: List of relationships between components
-            - layout: Graph layout parameters
-            
-    Raises:
-        GraphError: If DAG structure is invalid
-        DatabaseError: If Neo4j query fails
-        VisualizationError: If graph rendering fails
-    """
+    """Generate a visualization of the argument DAG"""
     try:
-        result = await session.run("""
-            MATCH (n:Claim)
-            OPTIONAL MATCH (n)-[r]->(m:Claim)
-            RETURN collect(DISTINCT {
-                id: elementId(n),
-                label: labels(n)[0],
-                claim: n.claim,
-                grounds: n.grounds,
-                warrant: n.warrant
-            }) AS nodes,
-            collect(DISTINCT CASE WHEN m IS NOT NULL THEN {
-                source: elementId(n),
-                target: elementId(m),
-                type: type(r)
-            } END) AS edges
-        """)
+        # Query to get all nodes and relationships
+        query = """
+        MATCH (n:Claim)
+        OPTIONAL MATCH (n)-[r]->(m:Claim)
+        RETURN collect(distinct n) as nodes, collect(distinct r) as edges
+        """
+        result = await session.run(query)
         record = await result.single()
-        graph = {
-            "nodes": record["nodes"] if record else [],
-            "edges": [edge for edge in record["edges"] if edge is not None] if record else [],
-            "layout": {
-                "name": "cose",
-                "animate": True
-            }
-        }
+        
+        if not record:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "detail": {
+                        "error_type": ErrorType.GRAPH_ERROR.value,
+                        "message": "No data found for visualization"
+                    }
+                }
+            )
+        
+        # Process nodes
+        nodes = []
+        for node in record["nodes"]:
+            nodes.append({
+                "id": str(node.element_id),
+                "label": node["text"],
+                "type": "claim"
+            })
+        
+        # Process edges
+        edges = []
+        for edge in record["edges"]:
+            edges.append({
+                "source": str(edge.start_node.element_id),
+                "target": str(edge.end_node.element_id),
+                "type": edge.type
+            })
+        
         return JSONResponse(
             status_code=200,
-            content=graph
+            content=DagVisualizationResponse(
+                nodes=nodes,
+                edges=edges,
+                layout={"name": "cose"},
+                message="Graph visualization generated successfully"
+            ).dict()
         )
+        
     except (ServiceUnavailable, Neo4jDatabaseError) as e:
-        raise BaseAPIError(
-            error_type=ErrorType.DATABASE_ERROR,
-            message="Failed to generate graph visualization",
+        return JSONResponse(
             status_code=500,
-            details={"error": str(e)}
+            content={
+                "detail": {
+                    "error_type": ErrorType.DATABASE_ERROR.value,
+                    "message": str(e)
+                }
+            }
         )
     except Exception as e:
-        raise BaseAPIError(
-            error_type=ErrorType.INTERNAL_ERROR,
-            message="An unexpected error occurred",
+        return JSONResponse(
             status_code=500,
-            details={"error": str(e)}
+            content={
+                "detail": {
+                    "error_type": ErrorType.INTERNAL_ERROR.value,
+                    "message": "An unexpected error occurred"
+                }
+            }
         )

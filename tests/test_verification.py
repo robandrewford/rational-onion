@@ -26,18 +26,13 @@ def rate_limiter() -> Any:
     limiter.reset()  # Reset before returning
     return limiter
 
-class TestConstants(TypedDict):
-    VALID_RELATIONSHIPS: List[str]
-    TIMEOUT_SECONDS: float
-    MAX_NODES: int
-    CONCURRENT_REQUESTS: int
-
-TEST_CONSTANTS = TestConstants(
-    VALID_RELATIONSHIPS=["SUPPORTS", "JUSTIFIES", "CHALLENGES"],
-    TIMEOUT_SECONDS=2.0,
-    MAX_NODES=100,
-    CONCURRENT_REQUESTS=5
-)
+# Constants for testing
+VERIFICATION_TEST_CONSTANTS = {
+    "VALID_RELATIONSHIPS": ["SUPPORTS", "JUSTIFIES", "CHALLENGES"],
+    "TIMEOUT_SECONDS": 2.0,
+    "MAX_NODES": 100,
+    "CONCURRENT_REQUESTS": 5
+}
 
 def assert_valid_verification_response(data: Dict[str, Any]) -> None:
     """Helper to validate verification response structure"""
