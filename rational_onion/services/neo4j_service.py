@@ -15,9 +15,19 @@ settings = get_settings()
 def get_connection_resolver():
     """Custom resolver to force IPv4"""
     def resolve(address):
-        host, port = address.partition(':')[::2]
-        port = int(port) if port else 7687
-        return [('127.0.0.1', port)]
+        # Handle address object properly based on Neo4j's expected type
+        if hasattr(address, 'host') and hasattr(address, 'port'):
+            # If address is an Address object
+            return [('127.0.0.1', address.port)]
+        else:
+            # If address is a string
+            host = address
+            port = 7687
+            if ':' in str(address):
+                parts = str(address).split(':')
+                if len(parts) > 1:
+                    port = int(parts[1])
+            return [('127.0.0.1', port)]
     return resolve
 
 # Initialize Neo4j driver with improved connection handling

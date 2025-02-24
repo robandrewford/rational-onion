@@ -1,5 +1,6 @@
 from typing import Dict, Any, List, Optional
-from pydantic import BaseSettings, validator, conint, constr
+from pydantic import BaseSettings, validator, conint, constr, Field
+from typing_extensions import Annotated
 from functools import lru_cache
 import os
 from dotenv import load_dotenv
@@ -40,9 +41,9 @@ class Settings(BaseSettings):
     RATE_LIMIT: str = "100/minute"
     
     # Argument Settings
-    MAX_CLAIM_LENGTH: conint(gt=0) = 500
-    MAX_GROUNDS_LENGTH: conint(gt=0) = 1000
-    MAX_WARRANT_LENGTH: conint(gt=0) = 500
+    MAX_CLAIM_LENGTH: Annotated[int, Field(gt=0)] = 500
+    MAX_GROUNDS_LENGTH: Annotated[int, Field(gt=0)] = 1000
+    MAX_WARRANT_LENGTH: Annotated[int, Field(gt=0)] = 500
     
     # Cache Settings
     CACHE_TTL: int = 3600  # 1 hour
