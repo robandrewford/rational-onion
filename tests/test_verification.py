@@ -91,7 +91,7 @@ class TestVerification:
     async def create_test_argument(self, session: AsyncSession) -> dict:
         """Create a test argument."""
         result = await session.run("""
-            CREATE (a:Claim {
+            CREATE (a:Argument {
                 claim: $claim,
                 grounds: $grounds,
                 warrant: $warrant
