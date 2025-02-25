@@ -8,6 +8,7 @@ from neo4j.exceptions import ServiceUnavailable, DatabaseError as Neo4jDatabaseE
 from unittest.mock import patch, AsyncMock, MagicMock
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+import logging
 
 from rational_onion.api.main import app
 from rational_onion.models.toulmin_model import ArgumentResponse
@@ -21,6 +22,9 @@ from rational_onion.api.errors import (
     BaseAPIError
 )
 from rational_onion.api.dependencies import limiter, get_db
+
+# Set the asyncio mark with scope for all tests in this file
+# pytestmark = pytest.mark.asyncio(scope="function")
 
 settings = get_test_settings()
 
@@ -117,8 +121,13 @@ class TestVerification:
         
         return {"argument_id": str(argument_id)}
 
-    @pytest.mark.asyncio
-    async def test_verify_argument_structure(self, test_client: TestClient, valid_api_key: str) -> None:
+    @pytest.mark.asyncio(scope="function")
+    async def test_verify_argument_structure(
+        self,
+        neo4j_test_session: AsyncSession,
+        test_client: TestClient,
+        valid_api_key: str
+    ) -> None:
         """Test successful argument structure verification"""
         response = test_client.post(
             "/verify-argument-structure",
@@ -132,11 +141,11 @@ class TestVerification:
         assert "has_cycles" in data
         assert "orphaned_nodes" in data
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio(scope="function")
     async def test_verify_cyclic_structure(
         self,
-        test_client: TestClient,
         neo4j_test_session: AsyncSession,
+        test_client: TestClient,
         valid_api_key: str
     ) -> None:
         """Test detection of cyclic argument structures"""
@@ -176,11 +185,11 @@ class TestVerification:
         data = response.json()
         assert "cycle detected" in data["detail"]["message"].lower()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio(scope="function")
     async def test_verify_orphaned_nodes(
         self,
-        test_client: TestClient,
         neo4j_test_session: AsyncSession,
+        test_client: TestClient,
         valid_api_key: str
     ) -> None:
         """Test detection of orphaned nodes"""
@@ -212,11 +221,11 @@ class TestVerification:
         assert data["detail"]["error_type"] == "VALIDATION_ERROR"
         assert "orphaned" in data["detail"]["message"].lower()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio(scope="function")
     async def test_verify_complex_structure(
         self,
-        test_client: TestClient,
         neo4j_test_session: AsyncSession,
+        test_client: TestClient,
         valid_api_key: str
     ) -> None:
         """Test verification of complex argument structure"""
@@ -252,12 +261,13 @@ class TestVerification:
         data = response.json()
         assert data["is_valid"] is True
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio(scope="function")
     async def test_database_error_handling(
         self,
+        neo4j_test_session: AsyncSession,
         test_client: TestClient,
-        neo4j_test_driver: AsyncDriver,
-        valid_api_key: str
+        valid_api_key: str,
+        monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Test database error handling"""
         
@@ -280,7 +290,7 @@ class TestVerification:
             assert data["detail"]["error_type"] == ErrorType.DATABASE_ERROR.value
             assert "message" in data["detail"]
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio(scope="function")
     @pytest.mark.parametrize("invalid_relation", [
         "UNKNOWN_RELATION",
         "INVALID_TYPE",
@@ -288,8 +298,8 @@ class TestVerification:
     ])
     async def test_invalid_relationship_types(
         self,
-        test_client: TestClient,
         neo4j_test_session: AsyncSession,
+        test_client: TestClient,
         valid_api_key: str,
         invalid_relation: str
     ) -> None:
@@ -339,7 +349,7 @@ class TestVerification:
         data = response.json()
         assert "argument" in str(data["detail"]).lower()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio(scope="function")
     async def test_rate_limit_verification_endpoint(
         self,
         test_client: TestClient,

@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 import os
 from neo4j.addressing import Address  # Use public API
 from rational_onion.api.main import app
+import warnings
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -23,20 +24,6 @@ def get_test_connection_resolver() -> Callable[[Address], Iterable[Address]]:
     def resolve(_: Address) -> list[Address]:
         return [Address("127.0.0.1/7687")]  # Use forward slash format
     return resolve
-
-@pytest.fixture(scope="function")
-def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
-    """Create an event loop for each test."""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    yield loop
-    # Clean up all pending tasks
-    pending = asyncio.all_tasks(loop)
-    for task in pending:
-        task.cancel()
-    # Run loop to complete any remaining tasks
-    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-    loop.close()
 
 @pytest_asyncio.fixture(scope="function")
 async def neo4j_test_driver() -> AsyncGenerator[AsyncDriver, None]:
@@ -188,3 +175,16 @@ def reset_rate_limiter(rate_limiter: Any) -> Generator[None, None, None]:
 def rate_limiter() -> Any:
     """Get rate limiter from app state"""
     return app.state.limiter
+
+def pytest_configure(config):
+    """Configure pytest to handle skip_asyncio marker"""
+    config.addinivalue_line("markers", "skip_asyncio: mark test to be excluded from asyncio")
+
+def pytest_collection_modifyitems(items):
+    """Process test items to handle skip_asyncio marker"""
+    for item in items:
+        if item.get_closest_marker("skip_asyncio"):
+            # Remove asyncio mark from tests marked with skip_asyncio
+            asyncio_marks = [mark for mark in item.own_markers if mark.name == "asyncio"]
+            for mark in asyncio_marks:
+                item.own_markers.remove(mark)

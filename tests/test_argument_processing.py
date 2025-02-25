@@ -22,7 +22,7 @@ class TestArgumentProcessing:
         async with neo4j_test_driver.session() as session:
             await session.run("MATCH (n) DETACH DELETE n")
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio(scope="function")
     async def test_insert_argument(
         self,
         test_client: TestClient,
@@ -49,7 +49,7 @@ class TestArgumentProcessing:
         assert "message" in data
         assert data["message"] == "Argument created successfully"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio(scope="function")
     async def test_insert_argument_with_rebuttal(
         self,
         test_client: TestClient,
@@ -73,7 +73,7 @@ class TestArgumentProcessing:
         data = response.json()
         assert "argument_id" in data
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio(scope="function")
     async def test_insert_argument_validation(
         self,
         test_client: TestClient,
@@ -106,7 +106,7 @@ class TestArgumentProcessing:
         )
         assert response.status_code == 422
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio(scope="function")
     async def test_insert_multiple_arguments(
         self,
         test_client: TestClient,
@@ -141,7 +141,7 @@ class TestArgumentProcessing:
             record = await result.single()
             assert record is not None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio(scope="function")
     async def test_argument_relationships(
         self,
         test_client: TestClient,
