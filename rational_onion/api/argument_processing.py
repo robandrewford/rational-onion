@@ -151,6 +151,13 @@ async def create_relationship(
                 field="relationship_type"
             )
         
+        # Prevent self-referential relationships
+        if relationship.source_id == relationship.target_id:
+            raise ValidationError(
+                "Self-referential relationships are not allowed. Source and target must be different arguments.",
+                field="source_id/target_id"
+            )
+        
         # Check if both arguments exist
         query = """
             MATCH (a1:Argument)
