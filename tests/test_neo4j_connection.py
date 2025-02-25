@@ -60,25 +60,35 @@ class TestNeo4jConnection:
 
     def test_connection_timeout(self) -> None:
         """Test connection timeout handling"""
-        with pytest.raises(ServiceUnavailable):
-            driver = GraphDatabase.driver(
-                'bolt://10.255.255.1:7687',  # Use a non-routable IP address
-                auth=('neo4j', 'password'),
-                connection_timeout=1
-            )
-            with driver.session() as session:
-                session.run('RETURN 1')
+        driver = None
+        try:
+            with pytest.raises(ServiceUnavailable):
+                driver = GraphDatabase.driver(
+                    'bolt://10.255.255.1:7687',  # Use a non-routable IP address
+                    auth=('neo4j', 'password'),
+                    connection_timeout=1
+                )
+                with driver.session() as session:
+                    session.run('RETURN 1')
+        finally:
+            if driver:
+                driver.close()
 
     def test_authentication_error(self) -> None:
         """Test authentication error handling"""
-        with pytest.raises(ClientError):
-            driver = GraphDatabase.driver(
-                'bolt://127.0.0.1:7687',
-                auth=('neo4j', 'wrong_password'),
-                connection_timeout=5
-            )
-            with driver.session() as session:
-                session.run('RETURN 1')
+        driver = None
+        try:
+            with pytest.raises(ClientError):
+                driver = GraphDatabase.driver(
+                    'bolt://127.0.0.1:7687',
+                    auth=('neo4j', 'wrong_password'),
+                    connection_timeout=5
+                )
+                with driver.session() as session:
+                    session.run('RETURN 1')
+        finally:
+            if driver:
+                driver.close()
 
     def test_connection_recovery(self) -> None:
         """Test connection recovery after failure"""
