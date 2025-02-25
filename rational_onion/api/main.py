@@ -11,6 +11,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from starlette.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
+from neo4j.exceptions import ServiceUnavailable, DatabaseError as Neo4jDatabaseError
 
 # Local imports
 from rational_onion.services.caching_service import caching_enabled, toggle_cache
@@ -80,6 +81,20 @@ async def api_error_handler(request: Request, exc: BaseAPIError) -> JSONResponse
 @app.exception_handler(DatabaseError)
 async def database_error_handler(request: Request, exc: DatabaseError) -> JSONResponse:
     """Handle database errors and return a consistent error format."""
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": {
+                "error_type": ErrorType.DATABASE_ERROR.value,
+                "message": str(exc)
+            }
+        }
+    )
+
+# Register Neo4j database error handler
+@app.exception_handler(Neo4jDatabaseError)
+async def neo4j_database_error_handler(request: Request, exc: Neo4jDatabaseError) -> JSONResponse:
+    """Handle Neo4j database errors and return a consistent error format."""
     return JSONResponse(
         status_code=500,
         content={

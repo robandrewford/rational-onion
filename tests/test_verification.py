@@ -4,6 +4,7 @@ import asyncio
 from typing import Dict, List, Optional, Any, AsyncGenerator, Union, TypedDict
 from fastapi.testclient import TestClient
 from neo4j import AsyncDriver, AsyncSession
+from neo4j.exceptions import ServiceUnavailable, DatabaseError as Neo4jDatabaseError
 from unittest.mock import patch, AsyncMock, MagicMock
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
