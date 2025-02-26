@@ -63,7 +63,11 @@ const ArgumentDAG = () => {
       if (!response.ok) {
         const errorText = await response.text();
         console.error('Fetch Error Response:', errorText);
-        throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+        console.error('API Key used:', API_KEY);
+        console.error('API URL used:', visualizationUrl);
+        setError(`HTTP error! status: ${response.status}, message: ${errorText}`);
+        setLoading(false);
+        return;
       }
 
       const data = await response.json();
