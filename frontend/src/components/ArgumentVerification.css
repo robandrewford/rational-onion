@@ -1,0 +1,148 @@
+.verification-container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 20px;
+  background-color: #f9f9f9;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.verification-container h2 {
+  color: #2c3e50;
+  margin-bottom: 15px;
+  text-align: center;
+}
+
+.description {
+  color: #666;
+  text-align: center;
+  margin-bottom: 25px;
+  line-height: 1.5;
+}
+
+.verify-button {
+  background-color: #3498db;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: background-color 0.3s;
+  display: block;
+  margin: 0 auto 30px;
+  width: 200px;
+}
+
+.verify-button:hover {
+  background-color: #2980b9;
+}
+
+.verify-button:disabled {
+  background-color: #95a5a6;
+  cursor: not-allowed;
+}
+
+.verification-results {
+  margin-top: 30px;
+  padding: 20px;
+  background-color: #fff;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.verification-results h3 {
+  color: #2c3e50;
+  margin-bottom: 20px;
+  text-align: center;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 10px;
+}
+
+.result-item {
+  margin-bottom: 15px;
+  display: flex;
+  align-items: center;
+}
+
+.result-label {
+  font-weight: 600;
+  width: 150px;
+  color: #555;
+}
+
+.result-value {
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.result-value.valid {
+  background-color: #d4edda;
+  color: #155724;
+}
+
+.result-value.invalid {
+  background-color: #f8d7da;
+  color: #721c24;
+}
+
+.orphaned-list {
+  margin: 10px 0 0 150px;
+  padding-left: 20px;
+  color: #721c24;
+}
+
+.orphaned-list li {
+  margin-bottom: 5px;
+}
+
+.result-message {
+  margin-top: 20px;
+  padding: 15px;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+  color: #555;
+}
+
+.error-message {
+  background-color: #f8d7da;
+  color: #721c24;
+  padding: 15px;
+  border-radius: 4px;
+  margin: 20px 0;
+  text-align: center;
+  border-left: 4px solid #dc3545;
+}
+
+.error-message h3 {
+  margin-top: 0;
+  margin-bottom: 10px;
+  color: #721c24;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .verification-container {
+    padding: 15px;
+    margin: 0 10px;
+  }
+  
+  .verify-button {
+    width: 100%;
+  }
+  
+  .result-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .result-label {
+    width: 100%;
+    margin-bottom: 5px;
+  }
+  
+  .orphaned-list {
+    margin-left: 0;
+  }
+} 

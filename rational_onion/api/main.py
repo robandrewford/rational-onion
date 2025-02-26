@@ -46,6 +46,8 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=86400,
 )
 
 # Register rate limit handler
@@ -106,11 +108,11 @@ async def neo4j_database_error_handler(request: Request, exc: Neo4jDatabaseError
     )
 
 # Include routers
-app.include_router(argument_processing_router, tags=["Argument Processing"])
-app.include_router(argument_verification_router, tags=["Argument Verification"])
-app.include_router(argument_improvement_router, tags=["Argument Improvement"])
-app.include_router(external_references_router, tags=["External References"])
-app.include_router(dag_visualization_router, tags=["DAG Visualization"])
+app.include_router(argument_processing_router, prefix="", tags=["Argument Processing"])
+app.include_router(argument_verification_router, prefix="", tags=["Argument Verification"])
+app.include_router(argument_improvement_router, prefix="", tags=["Argument Improvement"])
+app.include_router(external_references_router, prefix="", tags=["External References"])
+app.include_router(dag_visualization_router, prefix="", tags=["DAG Visualization"])
 
 @app.get("/health")
 @limiter.limit(settings.RATE_LIMIT)
